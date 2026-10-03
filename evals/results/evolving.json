@@ -1,0 +1,343 @@
+{
+  "curve": [
+    {
+      "label": "0 (before)",
+      "seconds": null,
+      "category_correct": 0.0,
+      "category_best_guess": 0.0,
+      "flagged_for_review": 0.1,
+      "right_ticket_in_top_3": 0.0,
+      "right_article_in_top_2": 0.0,
+      "labels_given": {
+        "esim_management -> device_hardware": 10,
+        "esim_management -> activation_provisioning": 10,
+        "security_fraud -> billing_dispute": 4,
+        "security_fraud -> account_access": 4,
+        "security_fraud -> voice_and_sms": 4,
+        "security_fraud -> unknown": 4,
+        "security_fraud -> device_hardware": 2,
+        "security_fraud -> connectivity_outage": 1,
+        "security_fraud -> payment_issue": 1
+      }
+    },
+    {
+      "label": "1",
+      "seconds": 0.566605038002308,
+      "category_correct": 0.0,
+      "category_best_guess": 0.0,
+      "flagged_for_review": 0.1,
+      "right_ticket_in_top_3": 0.2,
+      "right_article_in_top_2": 0.0,
+      "labels_given": {
+        "esim_management -> device_hardware": 10,
+        "esim_management -> activation_provisioning": 10,
+        "security_fraud -> billing_dispute": 4,
+        "security_fraud -> account_access": 4,
+        "security_fraud -> voice_and_sms": 4,
+        "security_fraud -> unknown": 4,
+        "security_fraud -> device_hardware": 2,
+        "security_fraud -> connectivity_outage": 1,
+        "security_fraud -> payment_issue": 1
+      }
+    },
+    {
+      "label": "3",
+      "seconds": 3.1677194879994204,
+      "category_correct": 0.0,
+      "category_best_guess": 0.0,
+      "flagged_for_review": 0.15,
+      "right_ticket_in_top_3": 0.45,
+      "right_article_in_top_2": 0.0,
+      "labels_given": {
+        "esim_management -> device_hardware": 10,
+        "esim_management -> activation_provisioning": 9,
+        "security_fraud -> billing_dispute": 5,
+        "security_fraud -> unknown": 5,
+        "security_fraud -> account_access": 3,
+        "security_fraud -> voice_and_sms": 3,
+        "security_fraud -> device_hardware": 2,
+        "security_fraud -> connectivity_outage": 1,
+        "security_fraud -> payment_issue": 1,
+        "esim_management -> unknown": 1
+      }
+    },
+    {
+      "label": "5",
+      "seconds": 3.660628566001833,
+      "category_correct": 0.025,
+      "category_best_guess": 0.075,
+      "flagged_for_review": 0.175,
+      "right_ticket_in_top_3": 0.5,
+      "right_article_in_top_2": 0.0,
+      "labels_given": {
+        "esim_management -> device_hardware": 9,
+        "esim_management -> activation_provisioning": 9,
+        "security_fraud -> unknown": 6,
+        "security_fraud -> billing_dispute": 5,
+        "security_fraud -> account_access": 3,
+        "security_fraud -> voice_and_sms": 2,
+        "esim_management -> number_porting": 1,
+        "security_fraud -> security_fraud": 1,
+        "security_fraud -> connectivity_outage": 1,
+        "security_fraud -> device_hardware": 1,
+        "security_fraud -> payment_issue": 1,
+        "esim_management -> unknown": 1
+      }
+    },
+    {
+      "label": "10",
+      "seconds": 3.7351073610007006,
+      "category_correct": 0.275,
+      "category_best_guess": 0.3,
+      "flagged_for_review": 0.1,
+      "right_ticket_in_top_3": 0.625,
+      "right_article_in_top_2": 0.0,
+      "labels_given": {
+        "esim_management -> device_hardware": 11,
+        "security_fraud -> security_fraud": 11,
+        "esim_management -> activation_provisioning": 8,
+        "security_fraud -> unknown": 3,
+        "security_fraud -> account_access": 2,
+        "security_fraud -> billing_dispute": 1,
+        "security_fraud -> connectivity_outage": 1,
+        "security_fraud -> voice_and_sms": 1,
+        "security_fraud -> payment_issue": 1,
+        "esim_management -> unknown": 1
+      }
+    },
+    {
+      "label": "20",
+      "seconds": 4.526370429000963,
+      "category_correct": 0.425,
+      "category_best_guess": 0.425,
+      "flagged_for_review": 0.025,
+      "right_ticket_in_top_3": 0.675,
+      "right_article_in_top_2": 0.0,
+      "labels_given": {
+        "security_fraud -> security_fraud": 17,
+        "esim_management -> device_hardware": 11,
+        "esim_management -> activation_provisioning": 8,
+        "security_fraud -> unknown": 1,
+        "security_fraud -> connectivity_outage": 1,
+        "security_fraud -> payment_issue": 1,
+        "esim_management -> security_fraud": 1
+      }
+    },
+    {
+      "label": "40",
+      "seconds": 4.73843387099987,
+      "category_correct": 0.475,
+      "category_best_guess": 0.475,
+      "flagged_for_review": 0.025,
+      "right_ticket_in_top_3": 0.625,
+      "right_article_in_top_2": 0.0,
+      "labels_given": {
+        "security_fraud -> security_fraud": 18,
+        "esim_management -> device_hardware": 9,
+        "esim_management -> activation_provisioning": 6,
+        "esim_management -> security_fraud": 2,
+        "esim_management -> number_porting": 1,
+        "esim_management -> esim_management": 1,
+        "security_fraud -> connectivity_outage": 1,
+        "esim_management -> unknown": 1,
+        "security_fraud -> payment_issue": 1
+      }
+    },
+    {
+      "label": "40 + articles",
+      "seconds": 2.5906510919994616,
+      "category_correct": 0.475,
+      "category_best_guess": 0.475,
+      "flagged_for_review": 0.025,
+      "right_ticket_in_top_3": 0.525,
+      "right_article_in_top_2": 0.5,
+      "labels_given": {
+        "security_fraud -> security_fraud": 18,
+        "esim_management -> device_hardware": 9,
+        "esim_management -> activation_provisioning": 6,
+        "esim_management -> security_fraud": 2,
+        "esim_management -> number_porting": 1,
+        "esim_management -> esim_management": 1,
+        "security_fraud -> connectivity_outage": 1,
+        "esim_management -> unknown": 1,
+        "security_fraud -> payment_issue": 1
+      }
+    }
+  ],
+  "known": {
+    "before": {
+      "category_correct": 0.617,
+      "category_best_guess": 0.667,
+      "flagged_for_review": 0.092,
+      "right_ticket_in_top_3": 0.717,
+      "right_article_in_top_2": 0.567,
+      "labels_given": {
+        "billing_dispute -> billing_dispute": 15,
+        "voice_and_sms -> voice_and_sms": 12,
+        "slow_speed -> slow_speed": 10,
+        "activation_provisioning -> activation_provisioning": 7,
+        "payment_issue -> billing_dispute": 6,
+        "tv_service -> tv_service": 6,
+        "number_porting -> number_porting": 4,
+        "account_access -> account_access": 4,
+        "connectivity_outage -> connectivity_outage": 4,
+        "plan_change -> billing_dispute": 4,
+        "plan_change -> plan_change": 4,
+        "connectivity_outage -> unknown": 4,
+        "connectivity_intermittent -> connectivity_intermittent": 4,
+        "connectivity_intermittent -> connectivity_outage": 3,
+        "tv_service -> billing_dispute": 3,
+        "connectivity_outage -> activation_provisioning": 2,
+        "device_hardware -> connectivity_outage": 2,
+        "device_hardware -> unknown": 2,
+        "voice_and_sms -> account_access": 2,
+        "roaming -> roaming": 2,
+        "voice_and_sms -> unknown": 2,
+        "voice_and_sms -> connectivity_outage": 2,
+        "payment_issue -> payment_issue": 1,
+        "billing_dispute -> connectivity_outage": 1,
+        "connectivity_intermittent -> device_hardware": 1,
+        "roaming -> connectivity_outage": 1,
+        "slow_speed -> unknown": 1,
+        "account_access -> billing_dispute": 1,
+        "tv_service -> unknown": 1,
+        "connectivity_outage -> voice_and_sms": 1,
+        "slow_speed -> connectivity_intermittent": 1,
+        "billing_dispute -> payment_issue": 1,
+        "activation_provisioning -> device_hardware": 1,
+        "activation_provisioning -> unknown": 1,
+        "billing_dispute -> slow_speed": 1,
+        "wifi_coverage -> connectivity_outage": 1,
+        "wifi_coverage -> wifi_coverage": 1,
+        "connectivity_intermittent -> voice_and_sms": 1
+      }
+    },
+    "after": {
+      "category_correct": 0.6,
+      "category_best_guess": 0.658,
+      "flagged_for_review": 0.1,
+      "right_ticket_in_top_3": 0.725,
+      "right_article_in_top_2": 0.533,
+      "labels_given": {
+        "billing_dispute -> billing_dispute": 15,
+        "voice_and_sms -> voice_and_sms": 12,
+        "slow_speed -> slow_speed": 10,
+        "activation_provisioning -> activation_provisioning": 7,
+        "payment_issue -> billing_dispute": 6,
+        "tv_service -> tv_service": 6,
+        "number_porting -> number_porting": 4,
+        "plan_change -> billing_dispute": 4,
+        "plan_change -> plan_change": 4,
+        "connectivity_outage -> unknown": 4,
+        "connectivity_intermittent -> connectivity_intermittent": 4,
+        "connectivity_intermittent -> connectivity_outage": 3,
+        "tv_service -> billing_dispute": 3,
+        "connectivity_outage -> connectivity_outage": 3,
+        "account_access -> account_access": 3,
+        "connectivity_outage -> activation_provisioning": 2,
+        "device_hardware -> connectivity_outage": 2,
+        "device_hardware -> unknown": 2,
+        "voice_and_sms -> account_access": 2,
+        "roaming -> roaming": 2,
+        "voice_and_sms -> unknown": 2,
+        "voice_and_sms -> connectivity_outage": 2,
+        "account_access -> unknown": 1,
+        "payment_issue -> payment_issue": 1,
+        "billing_dispute -> connectivity_outage": 1,
+        "connectivity_intermittent -> device_hardware": 1,
+        "roaming -> connectivity_outage": 1,
+        "slow_speed -> unknown": 1,
+        "account_access -> billing_dispute": 1,
+        "tv_service -> unknown": 1,
+        "connectivity_outage -> voice_and_sms": 1,
+        "slow_speed -> connectivity_intermittent": 1,
+        "billing_dispute -> payment_issue": 1,
+        "connectivity_outage -> payment_issue": 1,
+        "activation_provisioning -> device_hardware": 1,
+        "activation_provisioning -> unknown": 1,
+        "billing_dispute -> slow_speed": 1,
+        "wifi_coverage -> connectivity_outage": 1,
+        "wifi_coverage -> wifi_coverage": 1,
+        "connectivity_intermittent -> voice_and_sms": 1
+      }
+    }
+  },
+  "discovery": [
+    {
+      "threshold": 0.7,
+      "groups": 1,
+      "pure_groups": 0,
+      "new_complaints_grouped": 1.0,
+      "off_topic_in_a_group": 4,
+      "classes_found": 2,
+      "keywords": [
+        "sim, digital, card, code"
+      ]
+    },
+    {
+      "threshold": 0.75,
+      "groups": 1,
+      "pure_groups": 0,
+      "new_complaints_grouped": 1.0,
+      "off_topic_in_a_group": 0,
+      "classes_found": 2,
+      "keywords": [
+        "sim, digital, code, message"
+      ]
+    },
+    {
+      "threshold": 0.8,
+      "groups": 1,
+      "pure_groups": 0,
+      "new_complaints_grouped": 1.0,
+      "off_topic_in_a_group": 0,
+      "classes_found": 2,
+      "keywords": [
+        "sim, digital, code, message"
+      ]
+    },
+    {
+      "threshold": 0.825,
+      "groups": 1,
+      "pure_groups": 0,
+      "new_complaints_grouped": 0.85,
+      "off_topic_in_a_group": 0,
+      "classes_found": 2,
+      "keywords": [
+        "sim, digital, code, card"
+      ]
+    },
+    {
+      "threshold": 0.85,
+      "groups": 2,
+      "pure_groups": 2,
+      "new_complaints_grouped": 0.775,
+      "off_topic_in_a_group": 0,
+      "classes_found": 2,
+      "keywords": [
+        "sim, handset, digital, code",
+        "card, claims, dodgy, firm"
+      ]
+    },
+    {
+      "threshold": 0.875,
+      "groups": 1,
+      "pure_groups": 1,
+      "new_complaints_grouped": 0.2,
+      "off_topic_in_a_group": 0,
+      "classes_found": 1,
+      "keywords": [
+        "card, claims, dodgy, firm"
+      ]
+    },
+    {
+      "threshold": 0.9,
+      "groups": 0,
+      "pure_groups": 0,
+      "new_complaints_grouped": 0.0,
+      "off_topic_in_a_group": 0,
+      "classes_found": 0,
+      "keywords": []
+    }
+  ]
+}

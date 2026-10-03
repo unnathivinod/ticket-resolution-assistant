@@ -219,3 +219,25 @@ def remove_document(client: QdrantClient, doc_id: str, collection: str = COLLECT
         ),
         wait=True,
     )
+
+
+def remove_stale_chunks(
+    client: QdrantClient, doc_id: str, keep: int, collection: str = COLLECTION_ALIAS
+) -> None:
+    """Delete leftover chunks after an article became shorter (chunks numbered `keep` and above).
+
+    The new chunks are written first and the leftovers removed afterwards, so the article
+    never disappears from search while it is being updated.
+    """
+    client.delete(
+        collection,
+        points_selector=models.FilterSelector(
+            filter=models.Filter(
+                must=[
+                    models.FieldCondition(key="doc_id", match=models.MatchValue(value=doc_id)),
+                    models.FieldCondition(key="chunk_index", range=models.Range(gte=keep)),
+                ]
+            )
+        ),
+        wait=True,
+    )

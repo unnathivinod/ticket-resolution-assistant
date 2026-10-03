@@ -37,6 +37,12 @@ LLM_SECONDS = Histogram(
     buckets=(1, 2, 5, 10, 20, 30, 45, 60, 90, 120, 180),
 )
 TOKENS = Counter("generation_tokens_total", "Tokens read and written by the model", ["kind"])
+# Start every known label at 0, so dashboards show a zero instead of nothing and the
+# first event is counted. (Prometheus cannot see a rise from "does not exist" to 1.)
+for _mode in ("llm", "extractive"):
+    ANSWERS.labels(_mode)
+for _reason in ("llm_disabled", "llm_unavailable", "invalid_output"):
+    FALLBACKS.labels(_reason)
 
 
 def _dot(a: list[float], b: list[float]) -> float:

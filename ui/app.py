@@ -38,6 +38,16 @@ def call_gateway(path: str, payload: dict, timeout: float = 300) -> dict:
     return response.json()
 
 
+@st.cache_data(ttl=300)
+def known_categories() -> list[str]:
+    """The ticket categories in use, read from the gateway so new ones appear without a code change."""
+    try:
+        response = httpx.get(f"{GATEWAY_URL}/v1/taxonomy", headers={"X-API-Key": API_KEY}, timeout=10)
+        return [item["name"] for item in response.json()["category"]]
+    except (httpx.HTTPError, KeyError, ValueError):
+        return []
+
+
 def show_triage(triage: dict | None) -> None:
     if triage is None:
         st.warning("Labels are unavailable right now. The search and the answer still work.")
@@ -112,6 +122,14 @@ def show_feedback(request_id: str) -> None:
         st.success("Thank you, your feedback was saved.")
         return
     st.markdown("**Was this helpful?**")
+    right, none_fits = "The category is right", "None of the categories fits"
+    picked = st.selectbox(
+        "Was the category right? If not, pick the right one.",
+        [right, *known_categories(), none_fits],
+        format_func=lambda name: name.replace("_", " "),
+        key="feedback_category",
+    )
+    correct_category = None if picked == right else "none_of_these" if picked == none_fits else picked
     comment = st.text_input("Comment (optional)", key="feedback_comment")
     helpful, not_helpful, _ = st.columns([1, 1, 4])
     choice = True if helpful.button("Helpful") else False if not_helpful.button("Not helpful") else None
@@ -119,7 +137,12 @@ def show_feedback(request_id: str) -> None:
         try:
             call_gateway(
                 "/v1/feedback",
-                {"request_id": request_id, "helpful": choice, "comment": comment or None},
+                {
+                    "request_id": request_id,
+                    "helpful": choice,
+                    "comment": comment or None,
+                    "correct_category": correct_category,
+                },
                 timeout=15,
             )
             st.session_state["feedback_sent"] = request_id

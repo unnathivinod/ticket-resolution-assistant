@@ -22,6 +22,9 @@ docker compose ps                                        # all services should s
 docker compose run --rm tools python scripts/seed.py     # load the data (about a minute)
 ```
 
+Updating a copy that already has data? Run `docker compose run --rm tools python scripts/migrate.py`
+once after pulling, to add the newest columns to the database. It is safe to run again.
+
 Then open **http://localhost:8501**, paste a complaint and press **Resolve**.
 
 | Service | URL |
@@ -35,6 +38,9 @@ Then open **http://localhost:8501**, paste a complaint and press **Resolve**.
 | Retrieval service (API docs) | http://localhost:8002/docs |
 | Triage service (API docs) | http://localhost:8001/docs |
 | Generation service (API docs) | http://localhost:8003/docs |
+| Ingestion worker (metrics only) | http://localhost:8005/metrics |
+| **Grafana dashboard** (no login needed to look) | http://localhost:3000 |
+| Prometheus (numbers and alerts) | http://localhost:9090/alerts |
 
 If a port is already used on your machine, change it in `.env` (for example `REDIS_PORT=6380`).
 
@@ -74,6 +80,38 @@ best matching source, so the demo still works.
 | 6. Checkpoint | Nothing similar enough found: no answer is drafted, escalation is recommended | |
 | 7. Draft | Cited, checked resolution | Drafting down: return the sources, recommend escalation |
 | 8. Record | Request, answer and timings go to the `resolve_requests` table; agent feedback to `feedback` | Database down: still answer, count the error |
+
+## New data and new ticket classes
+
+Tickets, articles and ticket classes change while the system is running. Nothing is retrained
+and nothing is restarted.
+
+```bash
+# Add a resolved ticket. It is searchable about a second later.
+curl -X POST http://localhost:8000/v1/tickets \
+  -H "X-API-Key: dev-admin-key" -H "Content-Type: application/json" \
+  -d '{"subject": "Router overheats", "description": "The router gets very hot and restarts.",
+       "resolution_steps": ["Move it to an open shelf.", "Replace it if it still overheats."],
+       "category": "device_hardware", "product": "broadband"}'
+```
+
+| What changes | How | What happens |
+|---|---|---|
+| A new resolved ticket | `POST /v1/tickets` | Saved in PostgreSQL, a note goes on a queue, the ingestion worker adds it to the search index |
+| An article is edited | `PUT /v1/kb/{id}` | Same path. The new version replaces the old one in the index, with no gap |
+| A fix is outdated | `DELETE /v1/documents/{id}` | Hidden from search, kept in PostgreSQL so old answers can still be traced |
+| A new ticket class | `POST /v1/taxonomy` | Classes are rows in a table. Triage learns the class from the tickets labelled with it |
+| An agent sees a wrong category | Dropdown under the answer | Stored with the feedback. "None of the categories fits" feeds the discovery job |
+| Nobody noticed a new kind of problem yet | `python scripts/discover_classes.py` | Groups similar flagged complaints and proposes a class for a person to approve |
+
+These calls need an **admin key** (`ADMIN_API_KEYS` in `.env`). The agent key used by the web page
+can read and give feedback but cannot change data.
+
+Measure it (adds the two held-back classes step by step, then removes them again):
+
+```bash
+docker compose run --rm tools python evals/eval_evolving.py
+```
 
 ## The dataset
 
@@ -119,6 +157,39 @@ Settings are tuned on one half of the eval complaints and the reported numbers c
 half. The eval also checks that complaints from brand-new classes and off-topic questions are
 flagged as `unknown` instead of being forced into an existing class.
 
+## Is it healthy? (monitoring)
+
+```bash
+docker compose run --rm tools python scripts/health_check.py
+```
+
+One command that checks every service, sends a test complaint and an off-topic question through
+the gateway, checks that new data is not stuck, and lists any alert that is firing.
+
+| Where | What you see |
+|---|---|
+| http://localhost:3000 | One dashboard with 25 panels in five rows: up and fast enough, answer quality, drift, language model and cache, new data |
+| http://localhost:9090/alerts | 16 alert rules, each with what is wrong and what to do first |
+| `docker compose logs gateway` | One JSON line per request. The same `request_id` appears in every service the request touched |
+
+What the alerts watch, in plain words:
+
+| Question | Examples |
+|---|---|
+| Is it up and fast? | a service is down, more than 5% of requests fail, answers take over two minutes |
+| Are the answers still good? | the model is not being used, steps fail the source check, agents say "not helpful", agents keep correcting the category |
+| Has the world changed? | complaints are no longer similar to anything indexed, too many escalations, agents say "none of the categories fits" |
+| Is new data arriving? | the queue is growing, nothing indexed for 10 minutes, a document was given up on |
+
+The alert rules have their own tests (made-up numbers in, expected alerts out):
+
+```bash
+docker compose run --rm --entrypoint promtool prometheus test rules /etc/prometheus/alerts_test.yml
+```
+
+Every push to GitHub runs the code style check, the fast tests and these config checks
+(`.github/workflows/ci.yml`).
+
 ## Tests
 
 ```bash
@@ -135,5 +206,6 @@ docker compose run --rm tools pytest -m integration   # checks against the runni
 - [x] Triage service (category, product, severity, sentiment)
 - [x] Generation service (RAG with citations, checked answers, fallback without a model)
 - [x] Gateway (auth, rate limit, cache, checkpoints, audit log, feedback) and agent web page
-- [ ] Evolving data and ticket classes
-- [ ] Evals, monitoring, tests and CI
+- [x] Evolving data and ticket classes (ingestion worker, class management, discovery, eval)
+- [x] Monitoring (Prometheus, alert rules with tests, Grafana dashboard, health check) and CI
+- [ ] End-to-end answer quality eval, final documentation

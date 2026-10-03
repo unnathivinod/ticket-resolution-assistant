@@ -35,6 +35,8 @@ CONFIDENCE = Histogram(
 SIGNALS = Counter("triage_signals_total", "Urgency and tone signals detected", ["signal"])
 # A rising unknown rate is the alarm that customers are reporting a problem type we have no class for.
 UNKNOWN_TOTAL = Counter("triage_unknown_total", "Complaints that could not be labelled", ["field"])
+for _field in ("category", "product"):
+    UNKNOWN_TOTAL.labels(_field)  # start at 0 so the dashboard shows a flat line, not nothing
 
 
 class ClassifyRequest(BaseModel):

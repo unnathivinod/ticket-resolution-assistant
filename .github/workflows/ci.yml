@@ -1,0 +1,51 @@
+# This file only runs on GitHub when it is at .github/workflows/ci.yml. To install it (PowerShell):
+#   mkdir .github\workflows -Force; copy infra\ci\github-workflow.yml .github\workflows\ci.yml
+#
+# Runs on every push and pull request: code style, the fast tests, and the config files.
+# The evals are not run here. They need the models and the databases, so they are run on a
+# machine with the full stack (see README) and their results are kept in evals/results/.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: tools/requirements.txt
+
+      - name: Install the test tools
+        run: pip install -r tools/requirements.txt
+
+      - name: Code style
+        run: |
+          ruff check .
+          ruff format --check .
+
+      - name: Fast tests (no services needed)
+        run: pytest
+
+  config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: docker-compose.yml is valid
+        run: |
+          cp .env.example .env
+          docker compose config --quiet
+
+      - name: Prometheus config and alert rules are valid, and the alert tests pass
+        run: |
+          docker run --rm -v "$PWD/infra/prometheus:/etc/prometheus:ro" --entrypoint promtool \
+            prom/prometheus:v3.5.0 check config /etc/prometheus/prometheus.yml
+          docker run --rm -v "$PWD/infra/prometheus:/etc/prometheus:ro" --entrypoint promtool \
+            prom/prometheus:v3.5.0 test rules /etc/prometheus/alerts_test.yml

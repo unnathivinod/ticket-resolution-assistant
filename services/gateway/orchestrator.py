@@ -38,6 +38,15 @@ TOP_SIMILARITY = Histogram(
     buckets=(0.3, 0.4, 0.5, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1.0),
 )
 
+# Start every known label at 0, so dashboards show a zero instead of nothing and the
+# first event is counted. (Prometheus cannot see a rise from "does not exist" to 1.)
+for _outcome in ("answered", "cached", "escalated_no_match", "degraded", "analyzed_only"):
+    OUTCOMES.labels(_outcome)
+for _result in ("hit", "miss"):
+    CACHE.labels(_result)
+for _service in ("triage", "generation"):
+    DEGRADED.labels(_service)
+
 
 NO_MATCH_REASON = (
     "No past ticket or article is similar enough to this complaint. Escalate to second-line support."
@@ -55,6 +64,7 @@ class Orchestrator:
         self._generation = generation
         self._cache = cache
         self._store = store
+        self.store = store  # the data endpoints use the same database connection
         self._settings = settings
 
     def readiness(self) -> dict[str, bool]:
@@ -66,9 +76,14 @@ class Orchestrator:
         }
 
     @staticmethod
-    def _cache_key(masked_complaint: str) -> str:
+    def _cache_key(masked_complaint: str, index_version: str) -> str:
+        """The same complaint against the same search index always gets the same key.
+
+        The index version is part of the key: once a ticket or article is added or changed,
+        answers cached before that are no longer used.
+        """
         normalised = " ".join(masked_complaint.lower().split())
-        return "resolve:" + hashlib.sha256(normalised.encode()).hexdigest()
+        return f"resolve:{index_version}:" + hashlib.sha256(normalised.encode()).hexdigest()
 
     @staticmethod
     def _triage_view(result: dict | None) -> dict | None:
@@ -90,7 +105,8 @@ class Orchestrator:
         degraded: list[str] = []
         request_id = str(uuid.uuid4())
         masked = mask_pii(complaint)
-        cache_key = self._cache_key(masked)
+        index_version = self._cache.index_version()
+        cache_key = self._cache_key(masked, index_version)
 
         # 2. Cache
         if generate:
@@ -144,6 +160,7 @@ class Orchestrator:
                 "top_similarity": round(top_similarity, 4),
                 "model": None,
                 "prompt_version": None,
+                "index_version": index_version,
             },
         }
 
@@ -223,9 +240,16 @@ class Orchestrator:
                 "latency_ms": response["meta"]["latency_ms"],
                 "llm_model": response["meta"]["model"],
                 "prompt_version": response["meta"]["prompt_version"],
-                "index_version": None,
+                "index_version": response["meta"].get("index_version"),
             }
         )
 
-    def feedback(self, request_id: str, helpful: bool, comment: str | None, edited: str | None) -> bool:
-        return self._store.save_feedback(request_id, helpful, comment, edited)
+    def feedback(
+        self,
+        request_id: str,
+        helpful: bool,
+        comment: str | None,
+        edited: str | None,
+        correct_category: str | None = None,
+    ) -> bool:
+        return self._store.save_feedback(request_id, helpful, comment, edited, correct_category)

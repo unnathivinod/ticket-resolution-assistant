@@ -1,0 +1,29 @@
+# Prometheus collects the numbers every service publishes on /metrics, every 15 seconds.
+# Open http://localhost:9090/alerts to see which alert rules are firing.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - alerts.yml
+
+scrape_configs:
+  - job_name: gateway
+    static_configs:
+      - targets: ["gateway:8000"]
+  - job_name: triage
+    static_configs:
+      - targets: ["triage:8001"]
+  - job_name: retrieval
+    static_configs:
+      - targets: ["retrieval:8002"]
+  - job_name: generation
+    static_configs:
+      - targets: ["generation:8003"]
+  - job_name: embedding
+    static_configs:
+      - targets: ["embedding:8004"]
+  - job_name: ingestion
+    static_configs:
+      - targets: ["ingestion:8005"]

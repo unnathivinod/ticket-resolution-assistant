@@ -2,8 +2,10 @@
 
 import pytest
 
+from evals.eval_evolving import summarise_groups, ticket_body
 from evals.eval_retrieval import score_query
 from evals.eval_triage import load_items, macro_f1, share
+from services.ingestion.discovery import Proposal
 
 
 def result(source_type, doc_id, scenario, category="cat"):
@@ -66,3 +68,44 @@ def test_eval_complaints_are_split_evenly_into_dev_and_test():
         i["id"] for i in items if i["split"] == "test"
     }
     assert all(i["base_severity"] in {"low", "medium", "high"} for i in items if i["group"] == "known")
+
+
+# ---- eval_evolving -----------------------------------------------------------------------------
+
+
+def test_groups_are_scored_against_the_real_classes():
+    labels = {"a": "esim", "b": "esim", "c": "fraud", "d": "fraud", "x": None, "y": None}
+    clean = Proposal("esim", ["esim"], ["a", "b"])
+    mixed = Proposal("mixed", ["sim"], ["c", "x"])
+    summary = summarise_groups([clean, mixed], labels)
+    assert summary["groups"] == 2 and summary["pure_groups"] == 1
+    assert summary["new_complaints_grouped"] == 0.75  # a, b, c of the four real ones
+    assert summary["off_topic_in_a_group"] == 1  # x
+    assert summary["classes_found"] == 2
+
+    assert summarise_groups([], labels) == {
+        "groups": 0,
+        "pure_groups": 0,
+        "new_complaints_grouped": 0.0,
+        "off_topic_in_a_group": 0,
+        "classes_found": 0,
+    }
+
+
+def test_ticket_body_sends_only_fields_the_gateway_accepts():
+    ticket = {
+        "id": "T-900001",
+        "subject": "s",
+        "description": "d",
+        "resolution_steps": ["one"],
+        "category": "esim_management",
+        "product": "mobile",
+        "severity": "medium",
+        "sentiment": None,
+        "scenario_id": "H01",
+        "created_at": "2026-01-01",
+        "contains_pii": False,
+    }
+    body = ticket_body(ticket)
+    assert "created_at" not in body and "contains_pii" not in body and "sentiment" not in body
+    assert body["scenario_id"] == "H01" and body["id"] == "T-900001"

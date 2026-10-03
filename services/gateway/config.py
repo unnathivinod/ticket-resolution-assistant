@@ -15,6 +15,10 @@ class Settings(BaseSettings):
     # Comma-separated keys that may call the API. In production these come from a secret manager.
     api_keys: str = "dev-local-key"
     rate_limit_per_minute: int = 30
+    # Keys that may also change data: add tickets and articles, manage ticket classes.
+    admin_api_keys: str = "dev-admin-key"
+    admin_rate_limit_per_minute: int = 600  # bulk loads send many requests
+    ingest_stream: str = "ingest:events"
     cache_ttl_seconds: int = 3600
 
     top_k_tickets: int = 3
@@ -27,5 +31,10 @@ class Settings(BaseSettings):
     max_complaint_chars: int = 4000
     generation_timeout_seconds: float = 240.0
 
+    def admin_key_set(self) -> set[str]:
+        return {key.strip() for key in self.admin_api_keys.split(",") if key.strip()}
+
     def key_set(self) -> set[str]:
-        return {key.strip() for key in self.api_keys.split(",") if key.strip()}
+        """Every key that may call the API. An admin key can do everything an agent key can."""
+        agent_keys = {key.strip() for key in self.api_keys.split(",") if key.strip()}
+        return agent_keys | self.admin_key_set()

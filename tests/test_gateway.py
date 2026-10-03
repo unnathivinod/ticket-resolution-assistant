@@ -9,9 +9,10 @@ from fastapi.testclient import TestClient
 
 from libs.common.service_client import ServiceError
 from services.gateway.config import Settings
-from services.gateway.infra import RedisCache, RedisRateLimiter
+from services.gateway.infra import IngestQueue, RedisCache, RedisRateLimiter
 from services.gateway.main import create_app
 from services.gateway.orchestrator import Orchestrator
+from tests.fakes import InMemoryCache, InMemoryQueue, InMemoryStore
 
 KEY = {"X-API-Key": "test-key"}
 COMPLAINT = "My broadband drops every evening. Call me on 07700 900123."
@@ -95,40 +96,13 @@ class FakeGeneration(FakeService):
         }
 
 
-class InMemoryCache:
-    def __init__(self):
-        self.data = {}
-
-    def get(self, key):
-        return self.data.get(key)
-
-    def set(self, key, value):
-        self.data[key] = value
-
-
-class InMemoryStore:
-    def __init__(self):
-        self.requests, self.feedback, self.is_ready = [], [], True
-
-    def ready(self):
-        return self.is_ready
-
-    def save_request(self, record):
-        self.requests.append(record)
-        return True
-
-    def save_feedback(self, request_id, helpful, comment, edited):
-        if request_id not in {record["request_id"] for record in self.requests}:
-            return False
-        self.feedback.append((request_id, helpful, comment, edited))
-        return True
-
-
 class Limiter:
     def __init__(self, allowed=True):
         self.allowed = allowed
+        self.limits = []
 
-    def allow(self, identity):
+    def allow(self, identity, limit=None):
+        self.limits.append(limit)
         return self.allowed, 42
 
 
@@ -141,12 +115,18 @@ def setup():
         "cache": InMemoryCache(),
         "store": InMemoryStore(),
         "limiter": Limiter(),
+        "queue": InMemoryQueue(),
     }
-    settings = Settings(api_keys="test-key, other-key", min_similarity=0.7, max_complaint_chars=300)
+    settings = Settings(
+        api_keys="test-key, other-key",
+        admin_api_keys="admin-key",
+        min_similarity=0.7,
+        max_complaint_chars=300,
+    )
     orchestrator = Orchestrator(
         parts["triage"], parts["retrieval"], parts["generation"], parts["cache"], parts["store"], settings
     )
-    with TestClient(create_app(orchestrator, parts["limiter"], settings)) as client:
+    with TestClient(create_app(orchestrator, parts["limiter"], settings, parts["queue"])) as client:
         yield client, parts
 
 
@@ -205,6 +185,17 @@ def test_a_repeated_complaint_is_served_from_the_cache(setup):
     assert second["resolution"] == first["resolution"]
     assert second["request_id"] != first["request_id"]  # still its own request, with its own audit row
     assert len(parts["generation"].calls) == 1 and len(parts["store"].requests) == 2
+
+
+def test_a_change_to_the_search_index_makes_cached_answers_stale(setup):
+    client, parts = setup
+    first = resolve(client)
+    assert first["meta"]["index_version"] == "0"
+    parts["cache"].version = "1"  # the ingestion worker indexed something new
+    second = resolve(client)
+    assert second["meta"]["cached"] is False and second["meta"]["index_version"] == "1"
+    assert len(parts["generation"].calls) == 2
+    assert [record["index_version"] for record in parts["store"].requests] == ["0", "1"]
 
 
 def test_analyze_only_skips_drafting_and_is_not_logged(setup):
@@ -306,7 +297,23 @@ def test_feedback_is_stored_against_the_request(setup):
     request_id = resolve(client)["request_id"]
     body = {"request_id": request_id, "helpful": True, "comment": "worked first time"}
     assert client.post("/v1/feedback", json=body, headers=KEY).json() == {"status": "saved"}
-    assert parts["store"].feedback == [(request_id, True, "worked first time", None)]
+    assert parts["store"].feedback == [(request_id, True, "worked first time", None, None)]
+
+
+def test_an_agent_can_correct_the_category(setup):
+    client, parts = setup
+    request_id = resolve(client)["request_id"]
+    body = {"request_id": request_id, "helpful": False, "correct_category": "billing_dispute"}
+    assert client.post("/v1/feedback", json=body, headers=KEY).status_code == 200
+    body["correct_category"] = "none_of_these"  # "no existing category fits": feeds new-class discovery
+    assert client.post("/v1/feedback", json=body, headers=KEY).status_code == 200
+    assert [row[4] for row in parts["store"].feedback] == ["billing_dispute", "none_of_these"]
+
+    body["correct_category"] = "made_up_category"
+    assert client.post("/v1/feedback", json=body, headers=KEY).status_code == 422
+    metrics = client.get("/metrics").text
+    assert 'gateway_category_corrections_total{kind="relabelled"}' in metrics
+    assert 'gateway_category_corrections_total{kind="none_of_these"}' in metrics
 
 
 def test_feedback_for_an_unknown_or_invalid_request_is_refused(setup):
@@ -383,6 +390,9 @@ def test_cache_round_trip_and_expiry():
     cache.set("k", {"answer": 1})
     assert cache.get("k") == {"answer": 1}
     assert 0 < client.ttl("k") <= 60
+    assert cache.index_version() == "0"
+    client.incr("index:version")
+    assert cache.index_version() == "1"
 
 
 def test_rate_limiter_allows_up_to_the_limit_per_caller():
@@ -396,3 +406,5 @@ def test_a_redis_outage_never_blocks_requests():
     assert RedisCache(BrokenRedis(), 60).get("k") is None
     RedisCache(BrokenRedis(), 60).set("k", {"a": 1})  # must not raise
     assert RedisRateLimiter(BrokenRedis(), 1).allow("alice")[0] is True  # fail open
+    assert RedisCache(BrokenRedis(), 60).index_version() == "0"
+    assert IngestQueue(BrokenRedis()).publish("ticket", "T-1") is False  # reported, not raised

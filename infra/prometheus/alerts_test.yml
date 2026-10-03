@@ -1,0 +1,149 @@
+# Unit tests for the alert rules: made-up numbers go in, and we check which alerts fire.
+#   docker compose run --rm --entrypoint promtool prometheus test rules /etc/prometheus/alerts_test.yml
+
+rule_files:
+  - alerts.yml
+
+evaluation_interval: 1m
+
+tests:
+  # A service that stops answering raises an alert after one minute. A healthy one does not.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="gateway"}'
+        values: "1 1 0 0 0 0"
+      - series: 'up{job="triage"}'
+        values: "1 1 1 1 1 1"
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: ServiceDown
+        exp_alerts: []          # down for less than a minute: not yet
+      - eval_time: 4m
+        alertname: ServiceDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: gateway
+            exp_annotations:
+              summary: "gateway is not answering"
+              action: "Run 'docker compose ps' and 'docker compose logs gateway'."
+
+  # 1 failing request in 10 (10%) is above the 5% limit.
+  - interval: 1m
+    input_series:
+      - series: 'http_requests_total{service="gateway", status="200"}'
+        values: "0+54x20"
+      - series: 'http_requests_total{service="gateway", status="503"}'
+        values: "0+6x20"
+      - series: 'http_requests_total{service="triage", status="200"}'
+        values: "0+60x20"
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: HighErrorRate
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              service: gateway
+            exp_annotations:
+              summary: "More than 5% of requests to gateway are failing"
+              action: "Read the service's logs and filter on level=ERROR. Follow one request_id across services."
+
+  # Drift: when most complaints land in the "similarity up to 0.7" bucket, the median is too low.
+  - interval: 1m
+    input_series:
+      - series: 'gateway_top_similarity_bucket{le="0.7"}'
+        values: "0+8x120"
+      - series: 'gateway_top_similarity_bucket{le="0.75"}'
+        values: "0+9x120"
+      - series: 'gateway_top_similarity_bucket{le="0.85"}'
+        values: "0+10x120"
+      - series: 'gateway_top_similarity_bucket{le="+Inf"}'
+        values: "0+10x120"
+    alert_rule_test:
+      - eval_time: 100m
+        alertname: UnfamiliarComplaints
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "Half of the recent complaints are not close to anything in the knowledge base"
+              action: "Customers are asking about something new. Run scripts/discover_classes.py and add tickets or articles."
+
+  # Normal traffic: most complaints are between 0.8 and 0.85, so no drift alert.
+  - interval: 1m
+    input_series:
+      - series: 'gateway_top_similarity_bucket{le="0.75"}'
+        values: "0+1x120"
+      - series: 'gateway_top_similarity_bucket{le="0.8"}'
+        values: "0+3x120"
+      - series: 'gateway_top_similarity_bucket{le="0.85"}'
+        values: "0+8x120"
+      - series: 'gateway_top_similarity_bucket{le="+Inf"}'
+        values: "0+10x120"
+    alert_rule_test:
+      - eval_time: 100m
+        alertname: UnfamiliarComplaints
+        exp_alerts: []
+
+  # Work is waiting and the last successful indexing was long ago: the worker is stuck.
+  - interval: 1m
+    input_series:
+      - series: "ingestion_queue_waiting"
+        values: "3x30"
+      - series: "ingestion_last_success_timestamp"
+        values: "0x30"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: IngestionStalled
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: "Document changes are waiting but nothing has been indexed for 10 minutes"
+              action: "Check 'docker compose logs ingestion'. Usually the embedding service or Qdrant is down."
+
+  # Nothing waiting: an old "last success" time is fine (a quiet night, not a fault).
+  - interval: 1m
+    input_series:
+      - series: "ingestion_queue_waiting"
+        values: "0x30"
+      - series: "ingestion_last_success_timestamp"
+        values: "0x30"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: IngestionStalled
+        exp_alerts: []
+
+  # Half of the answers are quoted from sources: the model is not being used.
+  - interval: 1m
+    input_series:
+      - series: 'generation_answers_total{mode="llm"}'
+        values: "0+5x40"
+      - series: 'generation_answers_total{mode="extractive"}'
+        values: "0+5x40"
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: ModelNotUsed
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "More than 20% of answers are quoted from sources instead of drafted by the model"
+              action: "See the 'Why the model was not used' panel. Check that Ollama is running and the model is pulled."
+
+  # Agents: 6 of 12 ratings in the last hours were "not helpful". Only 3 ratings would be too few to alert.
+  - interval: 10m
+    input_series:
+      - series: 'gateway_feedback_total{helpful="true"}'
+        values: "0+1x36"
+      - series: 'gateway_feedback_total{helpful="false"}'
+        values: "0+1x36"
+    alert_rule_test:
+      - eval_time: 6h
+        alertname: UnhappyAgents
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "More than 40% of recent feedback says the answer was not helpful"
+              action: "Read the comments in the feedback table and the answers they point to."

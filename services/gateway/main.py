@@ -2,10 +2,12 @@
 
 Endpoints
   POST /v1/resolve    complaint -> labels, sources and a cited resolution   (needs X-API-Key)
-  POST /v1/feedback   thumbs up/down on an answer                           (needs X-API-Key)
+  POST /v1/feedback   thumbs up/down, and the right category if ours was wrong
   GET  /health        is the process alive?
   GET  /ready         which dependencies are reachable?
   GET  /metrics       numbers for Prometheus
+
+The endpoints for adding tickets, articles and ticket classes are in data_api.py.
 """
 
 from __future__ import annotations
@@ -25,13 +27,24 @@ from libs.common.observability import add_observability
 from libs.common.retrieval_client import RetrievalClient
 from libs.common.triage_client import TriageClient
 from services.gateway.config import Settings
-from services.gateway.infra import PostgresStore, RedisCache, RedisRateLimiter
+from services.gateway.data_api import add_data_routes
+from services.gateway.infra import NONE_OF_THESE, IngestQueue, PostgresStore, RedisCache, RedisRateLimiter
 from services.gateway.orchestrator import Orchestrator, SearchUnavailableError
 
 SERVICE_NAME = "gateway"
 
 REJECTED = Counter("gateway_rejected_total", "Requests refused before any work was done", ["reason"])
 FEEDBACK = Counter("gateway_feedback_total", "Feedback received from agents", ["helpful"])
+# Corrections divided by feedback is a live estimate of how often triage picks the wrong category.
+CORRECTIONS = Counter("gateway_category_corrections_total", "Categories corrected by agents", ["kind"])
+# Start every known label at 0, so dashboards show a zero instead of nothing and the
+# first event is counted. (Prometheus cannot see a rise from "does not exist" to 1.)
+for _reason in ("bad_api_key", "not_admin", "rate_limited"):
+    REJECTED.labels(_reason)
+for _helpful in ("true", "false"):
+    FEEDBACK.labels(_helpful)
+for _kind in ("relabelled", NONE_OF_THESE):
+    CORRECTIONS.labels(_kind)
 
 
 class ResolveRequest(BaseModel):
@@ -44,42 +57,65 @@ class FeedbackRequest(BaseModel):
     helpful: bool
     comment: str | None = Field(None, max_length=2000)
     edited_resolution: str | None = Field(None, max_length=8000)
+    correct_category: str | None = Field(
+        None,
+        max_length=60,
+        description=f"The right category if ours was wrong, or '{NONE_OF_THESE}' if no category fits",
+    )
 
 
 def create_app(
-    orchestrator: Orchestrator | None = None, limiter=None, settings: Settings | None = None
+    orchestrator: Orchestrator | None = None, limiter=None, settings: Settings | None = None, queue=None
 ) -> FastAPI:
-    """Build the app. Tests pass in an Orchestrator and a limiter wired to in-memory stand-ins."""
+    """Build the app. Tests pass in an Orchestrator, a limiter and a queue wired to in-memory stand-ins."""
     settings = settings or Settings()
     api_keys = settings.key_set()
+    admin_keys = settings.admin_key_set()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         if app.state.orchestrator is None:
             client = redis.Redis.from_url(settings.redis_url, socket_timeout=2, socket_connect_timeout=2)
+            store = PostgresStore(settings.database_url)
             app.state.limiter = RedisRateLimiter(client, settings.rate_limit_per_minute)
+            app.state.queue = IngestQueue(client, settings.ingest_stream)
+            app.state.store = store
             app.state.orchestrator = Orchestrator(
                 TriageClient(settings.triage_url, timeout=30),
                 RetrievalClient(settings.retrieval_url, timeout=30),
                 GenerationClient(settings.generation_url, timeout=settings.generation_timeout_seconds),
                 RedisCache(client, settings.cache_ttl_seconds),
-                PostgresStore(settings.database_url),
+                store,
                 settings,
             )
-        yield
+            yield
+            store.close()  # give the database connections back on shutdown
+        else:
+            yield
 
     app = FastAPI(title="Support Ticket Resolution Assistant", version="0.1.0", lifespan=lifespan)
     app.state.orchestrator = orchestrator
     app.state.limiter = limiter
+    app.state.queue = queue
+    app.state.store = orchestrator.store if orchestrator else None
     log = add_observability(app, SERVICE_NAME)
 
-    def authorised(request: Request, x_api_key: str | None = Header(None)) -> str:
+    def matches(candidate: str | None, keys: set[str]) -> bool:
+        # compare_digest takes the same time whether the key is nearly right or completely wrong
+        return candidate is not None and any(hmac.compare_digest(candidate, key) for key in keys)
+
+    def check(request: Request, x_api_key: str | None, admin_only: bool) -> str:
         """Check the API key, then the rate limit. Returns a short fingerprint of the key for logs."""
-        if x_api_key is None or not any(hmac.compare_digest(x_api_key, key) for key in api_keys):
+        if not matches(x_api_key, api_keys):
             REJECTED.labels("bad_api_key").inc()
             raise HTTPException(status_code=401, detail="Missing or invalid X-API-Key header")
+        is_admin = matches(x_api_key, admin_keys)
+        if admin_only and not is_admin:
+            REJECTED.labels("not_admin").inc()
+            raise HTTPException(status_code=403, detail="This API key may not change data")
         caller = hashlib.sha256(x_api_key.encode()).hexdigest()[:12]  # never log the key itself
-        allowed, retry_after = request.app.state.limiter.allow(caller)
+        limit = settings.admin_rate_limit_per_minute if is_admin else settings.rate_limit_per_minute
+        allowed, retry_after = request.app.state.limiter.allow(caller, limit)
         if not allowed:
             REJECTED.labels("rate_limited").inc()
             raise HTTPException(
@@ -88,6 +124,12 @@ def create_app(
                 headers={"Retry-After": str(retry_after)},
             )
         return caller
+
+    def authorised(request: Request, x_api_key: str | None = Header(None)) -> str:
+        return check(request, x_api_key, admin_only=False)
+
+    def admin(request: Request, x_api_key: str | None = Header(None)) -> str:
+        return check(request, x_api_key, admin_only=True)
 
     @app.get("/health")
     def health() -> dict:
@@ -136,18 +178,32 @@ def create_app(
             uuid.UUID(body.request_id)
         except ValueError:
             raise HTTPException(status_code=422, detail="request_id is not a valid ID") from None
+        orchestrator = request.app.state.orchestrator
         try:
-            saved = request.app.state.orchestrator.feedback(
-                body.request_id, body.helpful, body.comment, body.edited_resolution
+            if body.correct_category not in (None, NONE_OF_THESE):
+                known = {item["name"] for item in orchestrator.store.taxonomy()["category"]}
+                if body.correct_category not in known:
+                    raise HTTPException(
+                        status_code=422,
+                        detail=f"correct_category must be an existing category or '{NONE_OF_THESE}'",
+                    )
+            saved = orchestrator.feedback(
+                body.request_id, body.helpful, body.comment, body.edited_resolution, body.correct_category
             )
+        except HTTPException:
+            raise
         except Exception as error:  # noqa: BLE001 - the database is down: say so instead of crashing
             log.error("feedback not saved", extra={"fields": {"error": str(error), "caller": caller}})
             raise HTTPException(status_code=503, detail="Feedback could not be saved. Try again.") from error
         if not saved:
             raise HTTPException(status_code=404, detail="Unknown request_id")
         FEEDBACK.labels(str(body.helpful).lower()).inc()
+        if body.correct_category:
+            kind = NONE_OF_THESE if body.correct_category == NONE_OF_THESE else "relabelled"
+            CORRECTIONS.labels(kind).inc()
         return {"status": "saved"}
 
+    add_data_routes(app, any_key=authorised, admin_key=admin, log=log)
     return app
 
 

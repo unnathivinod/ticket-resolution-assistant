@@ -175,6 +175,132 @@ Known limits, to be honest about: the limiter is a fixed one-minute window (a bu
 edge can reach twice the limit), API keys live in an environment variable (a secret manager in
 production), and the 0.72 checkpoint has not yet been measured end to end.
 
+## New data and new ticket classes
+
+The brief asks for a system that handles "evolving data and ticket classes". Two different things
+change, and they need different answers.
+
+**New data** (a ticket is resolved, an article is edited, a fix becomes outdated):
+
+| Decision | Chosen | Alternative | Why |
+|---|---|---|---|
+| Where a change is written first | PostgreSQL, then a note on a queue | Straight into the search index | PostgreSQL is the source of truth. The index can always be rebuilt from it, never the other way round. |
+| Who updates the index | A separate worker reading a Redis Stream | The gateway does it during the request | Turning text into vectors is slow. The API answers at once, a burst of new tickets cannot slow agents down, and workers can be added. |
+| What the note contains | Only "ticket T-123 changed" | The whole document | The worker always reads the newest version from PostgreSQL, so notes can arrive twice or out of order without harm. |
+| A lost note (Redis down, crash between the two writes) | A sweep every minute compares `indexed_at` with `updated_at` and repairs anything behind | Trust the queue | Writing to two systems can never be made atomic. The sweep turns "usually consistent" into "always consistent within a minute or two". |
+| A note that keeps failing | Retried, then moved to a dead-letter list after 5 tries, with a metric | Retry forever | One broken document must not block everything behind it. |
+| Editing an article | Write the new chunks first, then delete leftover chunks of the old version | Delete, then write | The article never disappears from search during the update. |
+| Outdated fixes | Marked inactive and removed from the index, kept in PostgreSQL | Delete the row | Old answers that cited the document can still be traced. |
+| Cached answers after a change | The worker raises an index version, which is part of every cache key | Wait for the cache to expire | An answer cached before a knowledge-base fix must not be served after it. The cost is fewer cache hits on busy days. |
+| Who may change data | Separate admin keys, with a higher rate limit for bulk loads | One kind of key | The agent web page should not be able to rewrite the knowledge base. |
+
+**New classes** (a kind of problem that did not exist when the system was built):
+
+| Decision | Chosen | Alternative | Why |
+|---|---|---|---|
+| Where classes live | Rows in a `taxonomy` table, managed through the API | A list in the code | Adding a class is a data change, not a release. |
+| How triage learns a new class | Nothing to do: it votes over the nearest labelled tickets, so the class appears as soon as tickets carry it | Retrain a classifier | No training step, no deployment, no "model version" to roll back. `eval_evolving.py` measures how many tickets it takes. |
+| Typos creating classes | A ticket with a class that does not exist is refused (422) | Accept anything | Otherwise "biling_dispute" silently becomes a class. |
+| Spotting a new class | Not per request. Agents mark "none of the categories fits" (and triage marks "unknown"); a job groups similar flagged complaints and proposes a class | A similarity threshold per request | Measured in the triage eval: a new-class complaint looks exactly as "familiar" as a known one (5% flagged). One complaint cannot be spotted, a group of them can. |
+| Who decides | A person approves or rejects each proposal and gives it its name | Create classes automatically | A class changes routing and reporting. The job suggests, a human decides. |
+| Grouping method | Link complaints whose meaning is close enough, take the linked groups | k-means, HDBSCAN | No need to guess the number of classes, a few lines of code, easy to explain. The threshold comes from the eval. |
+| Agent corrections | Stored with the feedback and counted as a metric | Ignore | Corrections divided by feedback is a live estimate of triage accuracy on real traffic. |
+
+### Measured: two classes the system had never seen
+
+`evals/eval_evolving.py`, embedding model `BAAI/bge-small-en-v1.5`. The dataset holds back two
+classes (eSIM problems and fraud: 4 problem types, 40 test complaints in unseen wording). Resolved
+tickets were added through the gateway API a few at a time, and the complaints re-scored each time.
+
+| Resolved tickets added per new problem type | Category correct | Sent for human review | Right past ticket in top 3 | Right article in top 2 | Seconds until searchable |
+|---|---|---|---|---|---|
+| 0 (before) | 0.000 | 0.100 | 0.000 | 0.000 | |
+| 1 | 0.000 | 0.100 | 0.100 | 0.000 | 0.6 |
+| 3 | 0.000 | 0.125 | 0.450 | 0.000 | 3.2 |
+| 5 | 0.025 | 0.175 | 0.525 | 0.000 | 2.2 |
+| 10 | 0.275 | 0.100 | 0.625 | 0.000 | 2.3 |
+| 20 | 0.425 | 0.025 | 0.625 | 0.000 | 3.4 |
+| 40 | 0.475 | 0.025 | 0.575 | 0.000 | 4.9 |
+| 40 + articles | 0.475 | 0.025 | 0.625 | 0.500 | 2.1 |
+
+Old classes (120 complaints), before and after: category 0.633 and 0.600, right ticket in top 3
+0.717 and 0.717.
+
+Grouping the 40 new complaints with 30 off-topic questions (a group needs 5 members):
+
+| Similarity needed to link two complaints | Groups | Clean groups | New classes found (of 2) | New complaints placed | Off-topic questions in a group |
+|---|---|---|---|---|---|
+| 0.70 | 1 | 0 | 2 | 1.000 | 4 |
+| 0.75 | 1 | 0 | 2 | 1.000 | 0 |
+| 0.80 | 1 | 0 | 2 | 1.000 | 0 |
+| 0.85 | 2 | 2 | 2 | 0.775 | 0 |
+| 0.90 | 0 | 0 | 0 | 0.000 | 0 |
+
+What this showed:
+
+1. **New data is live in seconds, with no retraining and no restart.** 80 tickets were searchable
+   4.9 seconds after they were sent.
+2. **Search learns a new problem type from a handful of tickets**: the right past ticket is in the
+   top 3 for 45% of complaints after 3 tickets, and about 60% after 10. It then levels off below
+   the old classes (72%).
+3. **Triage learns the category more slowly and stops short**: 47% with 40 tickets per type,
+   against 63% for the old classes on the same run. Almost none of the misses are sent for review
+   (2.5%), so they are given a wrong existing label with confidence. The eval now prints which
+   labels they get, which is the next thing to look at.
+   A second run printed the labels, and the average hides two very different results:
+   **fraud was learned well (18 of 20 correct), eSIM almost not at all (1 of 20).** The eSIM
+   complaints were labelled `device_hardware` (9) and `activation_provisioning` (6). Those are
+   not random mistakes: "my eSIM will not activate" really is close to both existing classes.
+   A new class that overlaps old ones is hard for a nearest-neighbour vote, because the old
+   classes have many more tickets nearby. Search is less affected (it finds the right eSIM ticket
+   in the top 3 for about 60%), so the agent still sees the right fix under the wrong label.
+   What would help, not yet built: let the agent's corrections move such tickets, or give the
+   class definitions themselves a vote.
+4. **The old classes lost a little**: category 0.633 to 0.600, which is 4 complaints out of 120.
+   That is too few to be sure it is real, but it is the direction to expect, because new tickets
+   compete for the same votes.
+5. **Discovery works, inside a narrow range.** At 0.85 the two classes come out as two clean groups
+   with sensible keywords ("sim, handset, digital, code" and "card, claims, dodgy, firm") and no
+   off-topic questions. At 0.80 both classes merge into one group, and at 0.90 nothing groups.
+   The default was changed from 0.80 to 0.85 because of this. A range this narrow will move with
+   the embedding model, so the eval has to be re-run when the model changes.
+6. **What the discovery test does not show**: it assumes agents flagged these complaints. Triage on
+   its own flagged only 10% of them, so without the agent's "none of the categories fits" the job
+   would have had almost nothing to group.
+
+Known limits: the discovery job only sees complaints that were flagged, so a new class that agents
+keep filing under an old category stays invisible until someone notices. Suggested names are
+keywords, not real names. And the worker updates the live collection in place; a change of
+embedding model still needs a full re-index into a new collection and an alias switch.
+
+## Monitoring: knowing when it stops working
+
+An AI system can fail without any error: every request returns 200 while the answers quietly get
+worse. So the monitoring watches four things, not one.
+
+| Question | What is measured | Why it matters |
+|---|---|---|
+| Is it up and fast? | `up`, error share, time per stage | The usual service health. Time per stage shows that the language model is where the time goes. |
+| Are the answers good? | share drafted by the model against quoted, steps that failed the source check, agent feedback, category corrections | These catch a bad prompt change or a broken model while every request still "succeeds". |
+| Has the world changed? | similarity of the closest match, share escalated, share triage could not label, mix of categories | Drift. When customers start asking about something new, similarity falls before anyone complains. |
+| Is new data arriving? | queue length, time since the last indexed document, dead letters | A stuck worker is invisible to agents: search keeps working, only on old data. |
+
+| Decision | Chosen | Alternative | Why |
+|---|---|---|---|
+| Quality signals without labels | Things the system can check itself (citations, similarity) plus agent feedback | Wait for labelled data | Live traffic has no answer key. These signals are available on every request. |
+| Live triage accuracy | Category corrections divided by ratings | Only offline evals | The offline eval says how good triage was on test data. Corrections say how good it is today. |
+| Alert text | Every alert carries a summary and a first action | Name only | The person who gets the alert may not be the person who built the system. |
+| Alert rules | Tested with made-up numbers (`promtool test rules`), in CI | Trust the expression | An alert that never fires looks exactly like a healthy system. |
+| Dashboard | Built from a short Python list, checked by a test against the metric names in the code | Edit JSON by hand in Grafana | A renamed metric would otherwise leave an empty panel that nobody notices. |
+| Counters | Every known label starts at 0 | Appear on first use | Prometheus cannot see a rise from "does not exist" to 1, so the first event of each kind would be lost. |
+| Health check | A script that sends real requests through the gateway | Only `/ready` endpoints | Every service can be "ready" while the whole path is broken. |
+| Alert delivery | Shown in Prometheus and Grafana | Alertmanager with paging | Enough for a single machine. In production the same rules would go to Alertmanager. |
+| Logs | One JSON line per request with a shared request ID | Plain text | One customer request can be followed through every service by its ID. |
+
+Known limits: the numbers live on one machine and are lost with it, there is no tracing beyond
+the shared request ID, and the drift alerts use thresholds taken from the evals (for example a
+normal closest-match similarity of about 0.83) that have not been tuned on real traffic.
+
 ## Other decisions
 
 | Decision | Chosen | Alternative | Why |

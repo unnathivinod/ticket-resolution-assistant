@@ -1,0 +1,8 @@
+redis==8.1.0
+psycopg[binary,pool]==3.3.6
+qdrant-client==1.19.1
+httpx==0.28.1
+pydantic-settings==2.15.0
+prometheus-client==0.26.0
+# Only for the shared logging module (libs/common/observability.py), which also serves the web services
+fastapi==0.142.2

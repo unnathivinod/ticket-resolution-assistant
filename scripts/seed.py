@@ -22,6 +22,7 @@ from psycopg.types.json import Jsonb
 from qdrant_client import QdrantClient
 
 from libs.common.embedding_client import EmbeddingClient
+from scripts.migrate import migrate
 from services.ingestion.indexer import (
     COLLECTION_ALIAS,
     collection_dim,
@@ -134,6 +135,7 @@ def main() -> None:
 
     print(f"1/3 PostgreSQL: saving {len(tickets)} tickets and {len(articles)} articles ...")
     with psycopg.connect(database_url, connect_timeout=30) as conn:
+        migrate(conn)  # makes sure an older database has the newest columns
         load_postgres(conn, taxonomy, tickets, articles)
         counts = {
             table: conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0]  # noqa: S608 - fixed table names
@@ -161,6 +163,15 @@ def main() -> None:
 
     index_chunks(qdrant, embedder, chunks, on_progress=progress)
     points = qdrant.count(COLLECTION_ALIAS, exact=True).count
+
+    # Tell the ingestion worker these documents are already in the index, so it does not redo them.
+    with psycopg.connect(database_url, connect_timeout=30) as conn:
+        conn.execute(
+            "UPDATE tickets SET indexed_at = now() WHERE id = ANY(%s)", ([t["id"] for t in tickets],)
+        )
+        conn.execute(
+            "UPDATE kb_articles SET indexed_at = now() WHERE id = ANY(%s)", ([a["id"] for a in articles],)
+        )
 
     print(f"\nDone in {time.monotonic() - started:.0f}s.")
     print(f"  PostgreSQL rows : {counts}")

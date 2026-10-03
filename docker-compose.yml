@@ -18,6 +18,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
       # Runs once, the first time the database is created, to build the tables
       - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+      - ./infra/postgres/migrations/002_evolving_data.sql:/docker-entrypoint-initdb.d/02_evolving_data.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
@@ -154,6 +155,7 @@ services:
       GATEWAY_REDIS_URL: redis://redis:6379/0
       GATEWAY_DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       GATEWAY_API_KEYS: ${API_KEYS:-dev-local-key}
+      GATEWAY_ADMIN_API_KEYS: ${ADMIN_API_KEYS:-dev-admin-key}
       GATEWAY_RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-30}
     ports:
       - "127.0.0.1:${GATEWAY_PORT:-8000}:8000"
@@ -175,6 +177,35 @@ services:
       retries: 6
     restart: unless-stopped
 
+  # Ingestion worker: keeps the search index in step with PostgreSQL when tickets,
+  # articles or classes change. It has no API; the gateway hands it work through a Redis queue.
+  ingestion:
+    build:
+      context: .
+      dockerfile: services/ingestion/Dockerfile
+    environment:
+      INGESTION_REDIS_URL: redis://redis:6379/0
+      INGESTION_DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      INGESTION_QDRANT_URL: http://qdrant:6333
+      INGESTION_EMBEDDING_URL: http://embedding:8004
+    ports:
+      - "127.0.0.1:${INGESTION_METRICS_PORT:-8005}:8005"   # metrics only
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      embedding:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8005/metrics', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    restart: unless-stopped
+
   # Agent UI: a simple web page for support agents
   ui:
     build:
@@ -188,6 +219,54 @@ services:
     depends_on:
       gateway:
         condition: service_healthy
+    restart: unless-stopped
+
+  # Prometheus: collects the numbers every service publishes on /metrics and checks the alert rules
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+    volumes:
+      - ./infra/prometheus:/etc/prometheus:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    restart: unless-stopped
+
+  # Grafana: the dashboard. It is set up from files, so it looks the same on every machine.
+  grafana:
+    image: grafana/grafana:12.1.0
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      # Anyone on this machine can look (read-only) without logging in. Turn off for real use.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/support_assistant.json
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/etc/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
     restart: unless-stopped
 
   # Toolbox: one-off jobs (generate data, load data, run tests and evals).
@@ -209,6 +288,9 @@ services:
       GENERATION_URL: http://generation:8003
       GATEWAY_URL: http://gateway:8000
       GATEWAY_API_KEY: ${UI_API_KEY:-dev-local-key}
+      GATEWAY_ADMIN_API_KEY: ${TOOLS_ADMIN_API_KEY:-dev-admin-key}
+      INGESTION_URL: http://ingestion:8005
+      PROMETHEUS_URL: http://prometheus:9090
     volumes:
       - .:/app
     working_dir: /app
@@ -218,3 +300,5 @@ volumes:
   postgres_data:
   qdrant_data:
   redis_data:
+  prometheus_data:
+  grafana_data:

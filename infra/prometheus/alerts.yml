@@ -1,0 +1,174 @@
+# Alert rules: conditions that mean a person should look at the system.
+# Each rule says what is wrong (summary) and what to do first (action).
+# Tested by alerts_test.yml:
+#   docker compose run --rm --entrypoint promtool prometheus test rules /etc/prometheus/alerts_test.yml
+#
+# In production these would be sent to a pager or chat channel through Alertmanager.
+# Here they are shown at http://localhost:9090/alerts.
+
+groups:
+  # ---- Is the system up and fast enough? -----------------------------------------------------
+  - name: availability
+    rules:
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.job }} is not answering"
+          action: "Run 'docker compose ps' and 'docker compose logs {{ $labels.job }}'."
+
+      - alert: HighErrorRate
+        expr: |
+          sum by (service) (rate(http_requests_total{status=~"5.."}[5m]))
+            / sum by (service) (rate(http_requests_total[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "More than 5% of requests to {{ $labels.service }} are failing"
+          action: "Read the service's logs and filter on level=ERROR. Follow one request_id across services."
+
+      - alert: SlowAnswers
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(gateway_stage_seconds_bucket{stage="total"}[10m]))) > 120
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "1 in 20 answers takes longer than two minutes"
+          action: "Check the 'Time per stage' panel. If it is the language model, it needs a GPU or a smaller model."
+
+      - alert: AnsweringWithoutAService
+        expr: sum by (service) (rate(gateway_degraded_total[10m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "The gateway is answering without {{ $labels.service }}"
+          action: "Agents still get results, but without labels or without a drafted answer. Check that service."
+
+      - alert: AuditLogFailing
+        expr: increase(gateway_infra_errors_total{component="audit_log"}[10m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "Answers are being given but not recorded"
+          action: "Check PostgreSQL. Answers given meanwhile cannot be traced or receive feedback."
+
+  # ---- Are the answers still good? -----------------------------------------------------------
+  - name: answer_quality
+    rules:
+      - alert: ModelNotUsed
+        expr: |
+          sum(rate(generation_answers_total{mode="extractive"}[10m]))
+            / sum(rate(generation_answers_total[10m])) > 0.2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "More than 20% of answers are quoted from sources instead of drafted by the model"
+          action: "See the 'Why the model was not used' panel. Check that Ollama is running and the model is pulled."
+
+      - alert: UnverifiedSteps
+        expr: |
+          sum(rate(generation_unsupported_steps_total[30m]))
+            / sum(rate(generation_answers_total[30m])) > 0.5
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "The model often writes steps its cited source does not support"
+          action: "Was the prompt or the model changed? Compare prompt_version in the audit log and re-run the evals."
+
+      - alert: UnhappyAgents
+        expr: |
+          sum(increase(gateway_feedback_total{helpful="false"}[6h])) / sum(increase(gateway_feedback_total[6h])) > 0.4
+            and sum(increase(gateway_feedback_total[6h])) >= 10
+        labels:
+          severity: warning
+        annotations:
+          summary: "More than 40% of recent feedback says the answer was not helpful"
+          action: "Read the comments in the feedback table and the answers they point to."
+
+      - alert: CategoryOftenCorrected
+        expr: |
+          sum(increase(gateway_category_corrections_total[24h])) / sum(increase(gateway_feedback_total[24h])) > 0.3
+            and sum(increase(gateway_feedback_total[24h])) >= 10
+        labels:
+          severity: warning
+        annotations:
+          summary: "Agents corrected the category on more than 30% of the answers they rated"
+          action: "Triage accuracy has dropped on real traffic. Re-run evals/eval_triage.py --calibrate."
+
+  # ---- Has the world changed? (drift) --------------------------------------------------------
+  - name: drift
+    rules:
+      - alert: UnfamiliarComplaints
+        expr: histogram_quantile(0.5, sum by (le) (rate(gateway_top_similarity_bucket[1h]))) < 0.75
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Half of the recent complaints are not close to anything in the knowledge base"
+          action: "Customers are asking about something new. Run scripts/discover_classes.py and add tickets or articles."
+
+      - alert: TooManyEscalations
+        expr: |
+          sum(rate(gateway_resolve_total{outcome="escalated_no_match"}[30m]))
+            / sum(rate(gateway_resolve_total{outcome!="analyzed_only"}[30m])) > 0.3
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "More than 30% of complaints are escalated because nothing similar was found"
+          action: "The knowledge base has a gap. Look at recent escalated complaints in the audit log."
+
+      - alert: TriageUnsure
+        expr: |
+          sum(rate(triage_unknown_total{field="category"}[30m]))
+            / sum(rate(http_requests_total{service="triage", path="/classify"}[30m])) > 0.25
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Triage cannot decide the category for more than 25% of complaints"
+          action: "Normal is under 10%. Check for a new kind of problem, or a recent change to the index."
+
+      - alert: NewKindOfProblem
+        expr: sum(increase(gateway_category_corrections_total{kind="none_of_these"}[24h])) >= 5
+        labels:
+          severity: info
+        annotations:
+          summary: "Agents said 'none of the categories fits' five or more times today"
+          action: "Run scripts/discover_classes.py and review the proposals at GET /v1/classes/proposals."
+
+  # ---- Is new data reaching the search index? ------------------------------------------------
+  - name: ingestion
+    rules:
+      - alert: IngestionBacklog
+        expr: ingestion_queue_waiting > 100
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "More than 100 document changes are waiting to be indexed"
+          action: "Add a second worker: docker compose up -d --scale ingestion=2"
+
+      - alert: IngestionStalled
+        expr: ingestion_queue_waiting > 0 and time() - ingestion_last_success_timestamp > 600
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Document changes are waiting but nothing has been indexed for 10 minutes"
+          action: "Check 'docker compose logs ingestion'. Usually the embedding service or Qdrant is down."
+
+      - alert: IngestionDeadLetters
+        expr: increase(ingestion_dead_letter_total[30m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "A document change failed five times and was set aside"
+          action: "Look at the Redis stream 'ingest:dead' for the document ID and the error."

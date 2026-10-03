@@ -1,0 +1,10 @@
+# Loads every dashboard file in /etc/grafana/dashboards when Grafana starts.
+apiVersion: 1
+
+providers:
+  - name: support-assistant
+    type: file
+    allowUiUpdates: true
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/dashboards
