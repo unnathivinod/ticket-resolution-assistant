@@ -328,7 +328,7 @@
       "id": 8,
       "type": "timeseries",
       "title": "What happened to each complaint",
-      "description": "answered, cached, escalated (nothing similar) or degraded (a service was down).",
+      "description": "answered, cached, escalated (nothing similar, or the model said so) or degraded.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"

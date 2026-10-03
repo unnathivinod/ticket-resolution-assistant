@@ -187,6 +187,14 @@ def test_a_repeated_complaint_is_served_from_the_cache(setup):
     assert len(parts["generation"].calls) == 1 and len(parts["store"].requests) == 2
 
 
+def test_the_cache_can_be_skipped_for_a_fresh_answer(setup):
+    client, parts = setup
+    resolve(client)
+    fresh = resolve(client, use_cache=False)  # the evals need a newly drafted answer every time
+    assert fresh["meta"]["cached"] is False
+    assert len(parts["generation"].calls) == 2
+
+
 def test_a_change_to_the_search_index_makes_cached_answers_stale(setup):
     client, parts = setup
     first = resolve(client)

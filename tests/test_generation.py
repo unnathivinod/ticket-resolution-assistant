@@ -244,6 +244,46 @@ def test_the_model_may_escalate_instead_of_answering():
     assert result["grounded"] is True
 
 
+def test_when_the_model_says_the_source_is_about_something_else_no_steps_are_shown():
+    # The model ignores its own verdict and writes steps anyway. The code enforces the verdict.
+    mismatch = {
+        **reply([("Refund the duplicate payment.", ["T-000099"])]),
+        "customer_problem": "eSIM QR code will not scan",
+        "source_problem": "duplicate payment on the bill",
+        "same_problem": False,
+    }
+    gen, llm = generator(mismatch, match_check=True)
+    result = gen.generate("My eSIM QR code will not scan.", SOURCES)
+    assert result["steps"] == [] and result["escalate"] is True and result["mode"] == "llm"
+    assert "duplicate payment on the bill" in result["escalation_reason"]
+    assert "eSIM QR code will not scan" in result["summary"]
+    assert len(llm.calls) == 1  # a refusal is an answer, not a failure to retry
+    assert result["prompt_version"] == "v3" and "same_problem" in llm.calls[0]["system"]
+
+
+def test_the_match_check_is_off_by_default_because_the_small_model_refused_everything():
+    # Measured in evals/eval_answers.py: with the check on, llama3.2:3b refused 20 of 20 known complaints.
+    verdict = {**reply([(STEPS[0], ["T-000001"])]), "same_problem": False}
+    gen, llm = generator(verdict)
+    result = gen.generate("My broadband drops every evening.", SOURCES)
+    assert len(result["steps"]) == 1 and result["prompt_version"] == "v2"
+    assert "same_problem" not in llm.calls[0]["system"]
+    assert "same_problem" not in llm.calls[0]["schema"]["properties"]
+
+
+def test_the_model_must_judge_the_match_before_it_writes_steps():
+    schema = answer_schema(["T-000001"], match_check=True)
+    order = list(schema["properties"])
+    assert order.index("same_problem") < order.index("steps")
+    assert {"customer_problem", "source_problem", "same_problem"} <= set(schema["required"])
+
+
+def test_an_answer_without_the_verdict_field_still_works():
+    # Older replies (or a hosted model that drops the field) are treated as "same problem".
+    gen, _ = generator(reply([(STEPS[0], ["T-000001"])]))
+    assert len(gen.generate("My broadband drops every evening.", SOURCES)["steps"]) == 1
+
+
 def test_personal_details_never_reach_the_model():
     gen, llm = generator(reply([(STEPS[0], ["T-000001"])]))
     gen.generate("Broadband drops. Call me on 07700 900123 or sam@example.com.", SOURCES)

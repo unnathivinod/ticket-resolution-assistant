@@ -117,6 +117,10 @@ What this showed:
 4. **Exact severity is the weakest label (0.49)**, although it is within one level 89% of the time.
    Severity depends on two things being right at once: the baseline for the problem type and the
    urgency signal. The eval now scores the two parts separately so the weaker one can be fixed.
+   Follow-up: with the two parts scored separately, the baseline settings (how many similar tickets,
+   and which point of their severities) were added to the tuning. On the test half, exact severity
+   rose from 0.489 to **0.594** and within one level from 0.894 to **0.933**. The parts: baseline
+   0.706, urgency signal 0.678. Severity stays the weakest label.
 
 Decisions taken:
 
@@ -150,6 +154,78 @@ relevant source. v2 tells it not to, and the code strips a trailing ID as a seco
 Measured on a laptop with no GPU: about 63 seconds per answer. That is why the gateway caches
 answers and why the page shows labels and sources first. Answer quality has not been scored yet;
 that needs its own eval (groundedness, refusal on off-topic questions) and is the next thing to measure.
+
+### Measured: the final answers (prompt v2)
+
+`evals/eval_answers.py`, model `llama3.2:3b`, through the gateway. Because every ticket and article
+in the dataset belongs to a scenario, a citation can be checked against the scenario the complaint
+was written from, with no human grading.
+
+| Group | Complaints | Cites the right problem | Right, mixed with another | Cites a wrong problem | Escalated, no answer |
+|---|---|---|---|---|---|
+| Known problems | 20 | 11 | 3 | 6 | 0 |
+| New class (no fix exists) | 6 | 0 | 0 | 6 | 0 |
+| Off topic | 30 | 0 | 0 | 7 | 23 |
+
+The "nothing similar enough" cut-off, over all 430 test complaints (share stopped):
+
+| Cut-off | Off-topic (want high) | Known complaints (want low) | New-class complaints |
+|---|---|---|---|
+| 0.60 | 0.433 | 0.003 | 0.000 |
+| 0.70 | 0.733 | 0.006 | 0.000 |
+| 0.72 (in use) | 0.767 | 0.014 | 0.000 |
+| 0.75 | 0.867 | 0.042 | 0.050 |
+| 0.80 | 1.000 | 0.250 | 0.275 |
+
+What this showed:
+
+1. **70% of answers to known problems cite the right problem** (14 of 20). Of the 6 wrong ones,
+   5 were search misses (no source about the right problem was among the five handed to the
+   model) and 1 was the model choosing badly. When the search found the right source, the model
+   used it 14 times out of 15. **Search is the bottleneck, not the model.**
+2. **"Every step is backed by its source" was 100%, and that is not the same as correct.** The
+   model copies steps faithfully, including from a source about the wrong problem. The check
+   catches invented steps. It cannot catch a real step that answers a different question.
+3. **The model never said "I do not know".** It drafted a fix for all 6 new-class complaints and for
+   all 7 off-topic questions that got past the cut-off. The prompt rule "escalate if the sources do
+   not cover the problem" was ignored 13 times out of 13.
+4. **The cut-off stops what is clearly unrelated and nothing else.** At 0.72 it stops 77% of
+   off-topic questions and 1.4% of real complaints. Raising it to 0.80 would stop all off-topic
+   questions but also a quarter of real complaints. It cannot help with new classes at all:
+   their closest match (0.83) looks exactly like a known complaint's.
+5. **"Already tried" works**: the answer listed what the customer tried in 11 of 11 complaints,
+   and repeated it as a step once.
+6. **A typical answer takes 31 seconds** on a laptop CPU (slowest 44).
+
+### Measured: making the model say "I do not know" (prompt v3, rejected)
+
+Because of finding 3, the decision was made part of the answer format: before writing any step
+the model had to name the customer's problem, name the best source's problem, and say whether
+they are the same. If it said no, the code removed the steps and escalated. Same eval, same
+complaints:
+
+| Group | Prompt v2: answer drafted | Prompt v3: answer drafted |
+|---|---|---|
+| Known problems (20) | 20, of which 14 cite the right problem | **0** |
+| New class, no fix exists (6) | 6, all wrong | 0 |
+| Off topic, past the cut-off (7) | 7, all wrong | 0 |
+
+**The model went from never refusing to always refusing.** It said "not the same problem" for all
+33 complaints it was asked about, including the 14 it answers correctly without the check. So it
+is not judging the match at all: asked to decide, a 3-billion-parameter model picks the safe
+answer every time.
+
+Decision: v2 stays the default. The check is kept behind a setting (`LLM_MATCH_CHECK`, off) so
+it can be tried again with a larger model, and the eval that rejected it is the eval that would
+accept it. The honest state of the system is therefore:
+
+- it is useful when the knowledge base covers the problem (70% of answers cite the right one),
+- it does not know when it does not know, so **a person must review every answer**. The page is
+  built for that: it shows the sources, their similarity, and what the answer cites.
+
+What would fix it properly, in order of expected value: a larger model for the match decision
+only (one short call), a reranker used as a relevance gate with a threshold taken from this eval,
+and better search (5 of the 6 wrong answers were search misses).
 
 ## Gateway: one front door
 

@@ -128,6 +128,7 @@ services:
       GENERATION_LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:11434/v1}
       GENERATION_LLM_MODEL: ${LLM_MODEL:-llama3.2:3b}
       GENERATION_LLM_API_KEY: ${LLM_API_KEY:-not-needed}
+      GENERATION_MATCH_CHECK: ${LLM_MATCH_CHECK:-false}
     extra_hosts:
       # Lets the container reach Ollama running on the host machine (needed on Linux).
       - "host.docker.internal:host-gateway"

@@ -81,8 +81,11 @@ def show_sources(sources: list[dict], expanded: bool = False) -> None:
 
 def show_resolution(result: dict) -> None:
     resolution = result["resolution"]
-    if resolution is None:
-        st.error(result["escalation_reason"] or "No resolution could be drafted. Please escalate.")
+    if resolution is None or not resolution["steps"]:
+        # Nothing similar enough was found, or the model judged the sources to be about another problem.
+        summary = resolution["summary"] if resolution else ""
+        reason = result["escalation_reason"] or "No resolution could be drafted."
+        st.error(f"{summary} {reason} Please escalate.".strip())
         return
     if resolution["mode"] == "extractive":
         st.info("The language model was not used. These steps are quoted from the best matching source.")
@@ -181,7 +184,8 @@ if "result" in st.session_state:
     st.subheader("Suggested resolution")
     show_resolution(result)
     # Without a drafted answer the sources are all the agent has, so show them opened.
-    show_sources(result["sources"], expanded=result["resolution"] is None)
+    no_answer = result["resolution"] is None or not result["resolution"]["steps"]
+    show_sources(result["sources"], expanded=no_answer)
     show_footer(result["meta"])
     st.divider()
     show_feedback(result["request_id"])

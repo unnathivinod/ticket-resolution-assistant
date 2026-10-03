@@ -8,8 +8,26 @@ A support agent pastes a raw customer complaint and gets back:
 
 Built as small microservices for a telecom support desk. Runs fully on a laptop: no paid API, no API key.
 
-> Status: work in progress. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full design
-> and [docs/DESIGN_DECISIONS.md](docs/DESIGN_DECISIONS.md) for the choices made and the evidence behind them.
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): the design, the diagrams, and every measured result.
+- [docs/DESIGN_DECISIONS.md](docs/DESIGN_DECISIONS.md): each choice, the alternative, and the measurement behind it.
+
+![The agent web page](docs/images/web-page.png)
+
+## What was measured
+
+All numbers come from the scripts in `evals/`, run on a laptop CPU with `bge-small-en-v1.5` and `llama3.2:3b`.
+
+| Question | Result |
+|---|---|
+| Does semantic search beat keyword search? | The right past ticket comes first for 55% of complaints, against 40% for keywords. Test complaints use wording the index has never seen. |
+| How good are the labels? | Category 71%, product 78%, sentiment 83%, severity 59% exact and 93% within one level. |
+| How fast does new data arrive? | A new ticket is searchable a few seconds after one API call. No retraining, no restart. |
+| Can it learn a new kind of problem? | Search: yes, from a handful of tickets. Category: well for one new class (18 of 20), badly for one that overlaps existing classes (1 of 20). |
+| Are the drafted answers right? | 70% cite the right problem. Most misses are search misses, not model mistakes. |
+| Does it refuse what it cannot answer? | Off-topic questions: 77% stopped. Telecom problems it has no fix for: **no**, it drafts a confident wrong answer. A person must review every draft. |
+| How long does an answer take? | Labels and sources in under a second, the drafted answer in about 31 seconds. |
+
+The weak spots are written up as plainly as the strong ones, in section 13 of the architecture document.
 
 ## Run it
 
@@ -157,6 +175,23 @@ Settings are tuned on one half of the eval complaints and the reported numbers c
 half. The eval also checks that complaints from brand-new classes and off-topic questions are
 flagged as `unknown` instead of being forced into an existing class.
 
+## Answer quality (evals)
+
+```bash
+docker compose run --rm tools python evals/eval_answers.py               # about 35 minutes on a CPU
+docker compose run --rm tools python evals/eval_answers.py --answers 5   # a quicker look
+```
+
+Sends complaints through the gateway exactly as an agent would and checks the final answers
+against the answer key in the dataset: does the answer cite the right problem, is every step
+backed by its source, does it avoid repeating what the customer already tried, are off-topic
+questions refused, and what happens with problems the knowledge base does not cover.
+It also measures the "nothing similar enough" cut-off over all 430 test complaints.
+
+One experiment is kept behind a setting: `LLM_MATCH_CHECK=true` makes the model confirm that the
+best source is about the same problem before it writes any step. With `llama3.2:3b` it then refused
+every complaint, so it is off. It is there to be tried again with a larger model.
+
 ## Is it healthy? (monitoring)
 
 ```bash
@@ -165,6 +200,8 @@ docker compose run --rm tools python scripts/health_check.py
 
 One command that checks every service, sends a test complaint and an off-topic question through
 the gateway, checks that new data is not stuck, and lists any alert that is firing.
+
+![The Grafana dashboard](docs/images/dashboard.png)
 
 | Where | What you see |
 |---|---|
@@ -197,15 +234,17 @@ docker compose run --rm tools pytest                  # fast tests, no services 
 docker compose run --rm tools pytest -m integration   # checks against the running services
 ```
 
-## Build progress
+## What is in the box
 
-- [x] Project skeleton and databases (Postgres, Qdrant, Redis)
-- [x] Synthetic telecom dataset (tickets + KB articles)
-- [x] Embedding service
-- [x] Data loading and retrieval (hybrid search, tuned from eval results)
-- [x] Triage service (category, product, severity, sentiment)
-- [x] Generation service (RAG with citations, checked answers, fallback without a model)
-- [x] Gateway (auth, rate limit, cache, checkpoints, audit log, feedback) and agent web page
-- [x] Evolving data and ticket classes (ingestion worker, class management, discovery, eval)
-- [x] Monitoring (Prometheus, alert rules with tests, Grafana dashboard, health check) and CI
-- [ ] End-to-end answer quality eval, final documentation
+| Part | What it does |
+|---|---|
+| Gateway | API keys, rate limit, PII masking, cache, checkpoints, audit log, feedback, data and class endpoints |
+| Triage | Category, product, severity, sentiment, with reasons, and "unknown" when unsure |
+| Retrieval | Hybrid semantic and keyword search over tickets and knowledge-base articles |
+| Generation | Cited answer drafted by a local LLM, checked against its sources, with a no-model fallback |
+| Embedding | The small models, in one place |
+| Ingestion worker | New and edited documents reach the search index in seconds, with retries and a safety sweep |
+| Web page | What the support agent uses |
+| Monitoring | Prometheus with 16 tested alert rules, a Grafana dashboard, a one-command health check |
+| Evals | Search, labels, new data and classes, final answers |
+| Tests and CI | 210 fast tests, 21 live tests, GitHub Actions on every push |

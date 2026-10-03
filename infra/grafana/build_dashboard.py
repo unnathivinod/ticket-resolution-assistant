@@ -86,7 +86,7 @@ ROWS = [
         [
             {
                 "title": "What happened to each complaint",
-                "help": "answered, cached, escalated (nothing similar) or degraded (a service was down).",
+                "help": "answered, cached, escalated (nothing similar, or the model said so) or degraded.",
                 "stack": True,
                 "queries": [("sum by (outcome) (rate(gateway_resolve_total[5m])) * 60", "{{outcome}}")],
                 "width": 8,

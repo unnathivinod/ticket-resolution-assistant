@@ -40,7 +40,14 @@ TOP_SIMILARITY = Histogram(
 
 # Start every known label at 0, so dashboards show a zero instead of nothing and the
 # first event is counted. (Prometheus cannot see a rise from "does not exist" to 1.)
-for _outcome in ("answered", "cached", "escalated_no_match", "degraded", "analyzed_only"):
+for _outcome in (
+    "answered",
+    "cached",
+    "escalated_no_match",
+    "escalated_by_model",
+    "degraded",
+    "analyzed_only",
+):
     OUTCOMES.labels(_outcome)
 for _result in ("hit", "miss"):
     CACHE.labels(_result)
@@ -98,7 +105,7 @@ class Orchestrator:
             "needs_review": result["needs_review"],
         }
 
-    def resolve(self, complaint: str, generate: bool = True) -> dict:
+    def resolve(self, complaint: str, generate: bool = True, use_cache: bool = True) -> dict:
         settings = self._settings
         started = time.perf_counter()
         timings: dict[str, float] = {}
@@ -109,7 +116,7 @@ class Orchestrator:
         cache_key = self._cache_key(masked, index_version)
 
         # 2. Cache
-        if generate:
+        if generate and use_cache:
             cached = self._cache.get(cache_key)
             CACHE.labels("hit" if cached else "miss").inc()
             if cached:
@@ -218,9 +225,14 @@ class Orchestrator:
             self._audit(request_id, masked, response)
             if response["resolution"] is not None and not degraded:
                 self._cache.set(cache_key, response)
-            outcome = (
-                "degraded" if degraded else "answered" if response["resolution"] else "escalated_no_match"
-            )
+            if degraded:
+                outcome = "degraded"
+            elif response["resolution"] is None:
+                outcome = "escalated_no_match"  # stopped by the similarity checkpoint
+            elif not response["resolution"]["steps"]:
+                outcome = "escalated_by_model"  # the model judged the sources to be off the point
+            else:
+                outcome = "answered"
             OUTCOMES.labels(outcome).inc()
         else:
             OUTCOMES.labels("analyzed_only").inc()

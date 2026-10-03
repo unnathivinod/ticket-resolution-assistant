@@ -19,16 +19,19 @@ from libs.common.llm_client import LLMOutputError, LLMUnavailableError
 from libs.common.pii import mask_pii
 from services.generation.config import Settings
 from services.generation.prompt import (
-    PROMPT_VERSION,
-    SYSTEM_PROMPT,
     answer_schema,
     build_user_prompt,
     clean_step_text,
+    prompt_version,
+    system_prompt,
 )
 from services.generation.sources import SourceGroup, group_sources, resolution_steps, shorten, statements
 
 ANSWERS = Counter("generation_answers_total", "Answers produced, by how they were made", ["mode"])
 FALLBACKS = Counter("generation_fallbacks_total", "Times the model's answer could not be used", ["reason"])
+REFUSALS = Counter(
+    "generation_model_refusals_total", "Answers withheld because the model said the sources do not match"
+)
 DROPPED_STEPS = Counter("generation_dropped_steps_total", "Steps removed because they cited no real source")
 UNSUPPORTED_STEPS = Counter("generation_unsupported_steps_total", "Steps not backed by their cited source")
 LLM_SECONDS = Histogram(
@@ -70,10 +73,11 @@ class Generator:
             for group in groups
         ]
         return self._llm.chat_json(
-            system=SYSTEM_PROMPT.format(max_steps=settings.max_steps),
+            system=system_prompt(settings.max_steps, settings.match_check),
             user=build_user_prompt(complaint, triage, shown),
-            schema=answer_schema([group.primary["id"] for group in groups]),
-            max_tokens=settings.max_output_tokens,
+            schema=answer_schema([group.primary["id"] for group in groups], settings.match_check),
+            # The match check adds three short fields to the reply, so it needs a little more room.
+            max_tokens=settings.max_output_tokens + (50 if settings.match_check else 0),
             temperature=settings.temperature,
         )
 
@@ -189,6 +193,22 @@ class Generator:
                 TOKENS.labels("prompt").inc(usage.get("prompt_tokens", 0))
                 TOKENS.labels("completion").inc(usage.get("completion_tokens", 0))
 
+                if settings.match_check and raw.get("same_problem") is False:
+                    # The model says the sources are about a different problem. Its word is
+                    # enforced here: no steps are shown, whatever else it wrote.
+                    REFUSALS.inc()
+                    about = str(raw.get("source_problem", "")).strip().rstrip(".") or "a different problem"
+                    wanted = str(raw.get("customer_problem", "")).strip().rstrip(".") or "this problem"
+                    answer = {
+                        "summary": f"No matching fix was found for: {wanted}.",
+                        "already_tried": [str(item) for item in raw.get("already_tried", [])],
+                        "steps": [],
+                        "escalate": True,
+                        "escalation_reason": f"The closest sources are about something else ({about}).",
+                    }
+                    fallback_reason = None
+                    break
+
                 stage = time.perf_counter()
                 steps, dropped = self._check(raw, groups)
                 timings["check"] = timings.get("check", 0.0) + time.perf_counter() - stage
@@ -229,7 +249,7 @@ class Generator:
             "fallback_reason": fallback_reason,
             "sources_used": [source_id for group in groups for source_id in group.ids],
             "model": self._llm.model if mode == "llm" else None,
-            "prompt_version": PROMPT_VERSION,
+            "prompt_version": prompt_version(settings.match_check),
             "usage": {key: usage.get(key, 0) for key in ("prompt_tokens", "completion_tokens")},
             "timings_ms": {name: round(seconds * 1000, 1) for name, seconds in timings.items()},
         }

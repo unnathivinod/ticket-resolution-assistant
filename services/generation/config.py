@@ -15,6 +15,12 @@ class Settings(BaseSettings):
     temperature: float = 0.1  # low = consistent, factual answers
     max_output_tokens: int = 400
 
+    # Ask the model to say whether the best source is about the SAME problem before it writes
+    # steps, and withhold the answer if it says no (prompt v3). OFF by default: measured with
+    # llama3.2:3b it refused every complaint, including the ones it answers correctly without it
+    # (docs/DESIGN_DECISIONS.md). Worth trying again with a larger model.
+    match_check: bool = False
+
     embedding_url: str = "http://embedding:8004"
 
     # Prompt size limits. A small local model on a CPU reads slowly, so the prompt is kept short.

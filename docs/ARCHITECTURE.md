@@ -1,50 +1,58 @@
-# Intelligent Support Ticket Resolution Assistant — Architecture & Build Plan
+# Intelligent Support Ticket Resolution Assistant: Architecture
 
 **Use Case 2 · Telecom support desk · Semantic search + RAG · Microservices**
 
-> **In one sentence:** a support agent pastes a raw customer complaint and gets back (1) what the complaint is about, (2) the most similar past tickets and help articles, and (3) a step-by-step fix written by an AI that cites exactly which past tickets/articles it used.
+> **In one sentence:** a support agent pastes a raw customer complaint and gets back (1) what the
+> complaint is about, (2) the most similar past tickets and help articles, and (3) a step-by-step
+> fix drafted by a language model that cites exactly which tickets and articles it used.
+
+This document describes the system **as it was built and measured**. Every number in it comes
+from an eval in `evals/`, run on a laptop with no GPU. The reasons behind each choice, with the
+measurements that drove them, are in [DESIGN_DECISIONS.md](DESIGN_DECISIONS.md).
 
 ---
 
 ## 1. The problem, in plain words
 
-| | Today (keyword search) | What we build (semantic search + RAG) |
+| | Today (keyword search) | What was built (semantic search + RAG) |
 |---|---|---|
-| How agents search | Type "router" or "billing" | Paste the whole complaint as-is |
-| What goes wrong | "My wifi keeps dying at night" does not match a ticket titled "Intermittent broadband drop – evening congestion" because the words differ | Matches by **meaning**, not words |
-| What the agent gets | A list of tickets to read one by one | A drafted resolution with sources, ready to review |
-| Business impact | Slow handling time, inconsistent answers | Faster resolution, consistent answers, new agents perform like experienced ones |
+| How agents search | Type "router" or "billing" | Paste the whole complaint as it is |
+| What goes wrong | "My wifi keeps dying at night" does not match a ticket titled "Evening broadband drops caused by peak-hour congestion", because the words differ | Matches by **meaning**, not words |
+| What the agent gets | A list of tickets to read one by one | Labels, the closest past cases, and a drafted fix with sources, ready to review |
 
-**Three things the system must do (from the brief):**
+**The three things the brief asks for:**
 
-1. **Parse** the complaint → intent/category, product, severity, customer sentiment.
-2. **Retrieve + generate** → find similar resolved tickets and knowledge-base (KB) articles, then draft a grounded, cited, step-by-step resolution.
-3. **Handle evolving data and ticket classes** → new tickets, updated articles and brand-new problem types must work without rebuilding the system.
+1. **Parse** the complaint: category, product, severity, customer sentiment.
+2. **Retrieve and generate**: find similar resolved tickets and knowledge-base (KB) articles, then
+   draft a grounded, cited, step-by-step resolution.
+3. **Handle evolving data and ticket classes**: new tickets, edited articles and brand-new kinds
+   of problem must work without rebuilding the system.
 
-**Details in the example complaint worth noticing** (shows problem understanding):
+**What the example complaint in the brief tells us:**
 
-- *"drops every evening around 8"* → a time pattern, pointing to congestion rather than a broken router.
-- *"already restarted the router twice"* → the answer must **not** repeat steps the customer already tried.
-- *"I work from home and this is costing me"* → business impact raises severity; sentiment is frustrated.
-- The user is a **support agent**, not the customer. The AI writes a **draft**; a human reviews it before anything reaches the customer.
+- *"drops every evening around 8"*: a time pattern, which points to congestion, not a broken router.
+- *"already restarted the router twice"*: the answer must **not** repeat what the customer already tried.
+- *"I work from home and this is costing me"*: business impact raises the severity.
+- The user is a **support agent**, not the customer. The system writes a **draft**. A person
+  reviews it before anything reaches the customer. The evals in section 8 show why that matters.
 
 ---
 
-## 2. Words you need to know (beginner glossary)
+## 2. Words you need to know
 
 | Term | Simple meaning |
 |---|---|
-| **Embedding** | Turning a sentence into a list of numbers (e.g. 384 numbers) so that sentences with similar meaning have similar numbers. |
-| **Vector database** | A database that stores those number-lists and quickly finds the closest ones. We use Qdrant. |
-| **Semantic search** | Search by meaning: embed the question, find the nearest stored embeddings. |
-| **BM25 / keyword search** | Classic word-matching search. Still useful for exact things like error codes ("E-102") or plan names. |
-| **Hybrid search** | Run semantic + keyword search together and merge the results. Better than either alone. |
-| **Reranker** | A second, more careful model that re-orders the top ~20 results so the best 5 come first. |
-| **LLM** | Large Language Model, the text-writing AI. We run a small free one locally with Ollama. |
-| **RAG** | Retrieval-Augmented Generation: first *retrieve* real documents, then ask the LLM to write an answer *using only those documents*. Stops it from making things up. |
-| **Grounded / citation** | Every step in the answer points to the ticket or article it came from, e.g. `[KB-014]`. |
-| **Microservice** | A small program with one job, talking to other small programs over HTTP. |
-| **Docker / Docker Compose** | Packages each service in a box (container) and starts all of them with one command. |
+| **Embedding** | Turning a sentence into a list of numbers (here 384) so that sentences with similar meaning get similar numbers. |
+| **Vector database** | A database that stores those lists and quickly finds the closest ones. Here: Qdrant. |
+| **Semantic (dense) search** | Search by meaning: embed the complaint, find the nearest stored embeddings. |
+| **BM25 (sparse, keyword) search** | Classic word matching. Still useful for exact things such as the error code `E-102`. |
+| **Hybrid search** | Both searches together, merged into one ranking. |
+| **LLM** | Large language model, the text-writing AI. Here a small free one (`llama3.2:3b`) run locally with Ollama. |
+| **RAG** | Retrieval-Augmented Generation: first *retrieve* real documents, then ask the LLM to write an answer *using only those documents*. |
+| **Grounded, citation** | Every step in the answer points to the ticket or article it came from. |
+| **kNN (nearest neighbours)** | Label a new item by looking at the labels of the most similar known items. |
+| **Microservice** | A small program with one job that talks to other small programs over HTTP. |
+| **Eval** | A script that runs test cases with known answers through the system and reports a score. |
 
 ---
 
@@ -54,34 +62,34 @@
 
 ```mermaid
 flowchart TB
-    AGENT["Support agent"] --> UI["Agent UI - Streamlit :8501"]
-    UI --> GW["API Gateway :8000<br/>auth, rate limit, cache, orchestration"]
-    SRC["Ticketing system<br/>new resolved tickets, KB updates"] --> GW
+    AGENT["Support agent"] --> UI["Agent web page :8501"]
+    UI --> GW["API Gateway :8000<br/>API keys, rate limit, PII masking,<br/>cache, checkpoints, audit log"]
+    ADMIN["Ticketing system / admin<br/>new tickets, edited articles, new classes"] --> GW
 
-    subgraph QUERY["Read path - synchronous REST"]
-        TR["Triage Service :8001<br/>category, product, severity, sentiment"]
-        RT["Retrieval Service :8002<br/>hybrid search + rerank"]
-        GN["Generation Service :8003<br/>RAG prompt, citations, guardrails"]
+    subgraph READ["Answering a complaint (synchronous)"]
+        TR["Triage :8001<br/>category, product, severity, sentiment"]
+        RT["Retrieval :8002<br/>hybrid search"]
+        GN["Generation :8003<br/>draft, check citations, fallback"]
     end
 
-    subgraph WRITE["Write path - asynchronous"]
-        QUEUE[["Redis Stream - ingest queue"]]
-        ING["Ingestion Worker :8005<br/>clean, chunk, embed, upsert<br/>new-class discovery job"]
+    subgraph WRITE["New data (asynchronous)"]
+        QUEUE[["Redis Stream<br/>'document X changed'"]]
+        ING["Ingestion worker<br/>chunk, embed, index, sweep"]
     end
 
-    subgraph MODELS["Model serving"]
-        EMB["Embedding Service :8004<br/>dense + BM25 + reranker"]
-        LLM["Ollama :11434<br/>local LLM, free"]
+    subgraph MODELS["Models"]
+        EMB["Embedding :8004<br/>dense + BM25 vectors"]
+        LLM["Ollama<br/>llama3.2:3b"]
     end
 
     subgraph DATA["Data stores"]
-        QD[("Qdrant<br/>vectors: tickets + KB chunks")]
-        PG[("PostgreSQL<br/>tickets, KB, taxonomy, feedback, audit log")]
-        RD[("Redis<br/>cache + rate limits")]
+        QD[("Qdrant<br/>search index")]
+        PG[("PostgreSQL<br/>source of truth")]
+        RD[("Redis<br/>cache, limits, queue")]
     end
 
-    subgraph OBS["Observability"]
-        PROM["Prometheus"] --> GRAF["Grafana dashboards + alerts"]
+    subgraph OBS["Monitoring"]
+        PROM["Prometheus<br/>16 alert rules"] --> GRAF["Grafana dashboard"]
     end
 
     GW --> TR
@@ -89,47 +97,44 @@ flowchart TB
     GW --> GN
     GW --> RD
     GW --> PG
-    GW -- "publish event" --> QUEUE
+    GW -- "note" --> QUEUE
     QUEUE --> ING
 
+    TR --> RT
     TR --> EMB
-    TR --> QD
     RT --> EMB
     RT --> QD
     GN --> LLM
     GN --> EMB
+    ING --> PG
     ING --> EMB
     ING --> QD
-    ING --> PG
 
-    QUERY -. "/metrics" .-> PROM
+    READ -. "/metrics" .-> PROM
     WRITE -. "/metrics" .-> PROM
 ```
 
-### 3.2 Same picture as plain text (works in any viewer)
+### 3.2 The same picture as plain text
 
 ```
-                     Support agent
-                          |
-                   [ Streamlit UI ]
-                          |
-   new tickets /    [ API GATEWAY ]  --- Redis (cache, rate limit)
-   KB updates  -->   auth, limits,   --- Postgres (audit log, feedback)
-                     orchestration
-          ________________|___________________________
-         |                |                |          |
-   [ TRIAGE ]       [ RETRIEVAL ]    [ GENERATION ]   +--> Redis Stream (queue)
-   classify         hybrid search    RAG + citation              |
-         |           + rerank         check                [ INGESTION WORKER ]
-         |                |                |                clean, chunk, embed,
-         +-------+--------+           [ OLLAMA ]            new-class discovery
-                 |                    local LLM                   |
-       [ EMBEDDING SERVICE ] <------------------------------------+
-        dense + BM25 + rerank
-                 |
-            [ QDRANT ] vectors          [ POSTGRES ] source of truth
+                     Support agent                    Admin / ticketing system
+                          |                                     |
+                   [ Web page :8501 ]                           |
+                          |                                     |
+                   [ API GATEWAY :8000 ] <----------------------+
+        API keys, rate limit, PII masking, cache, checkpoints, audit log, feedback
+          |              |               |                |
+     [ TRIAGE ]    [ RETRIEVAL ]   [ GENERATION ]    Redis Stream (queue)
+      labels by     hybrid search   draft + checks         |
+      neighbour          |               |          [ INGESTION WORKER ]
+      vote  ------------>|          [ OLLAMA ]       reads PostgreSQL,
+          \              |           local LLM       embeds, updates index
+           \             |               |                 |
+            +---->[ EMBEDDING SERVICE ]<-+-----------------+
+                         |
+                    [ QDRANT ] search index        [ POSTGRESQL ] source of truth
 
-   All services expose /health, /ready, /metrics --> Prometheus --> Grafana
+   Every service publishes /metrics --> Prometheus (alerts) --> Grafana (dashboard)
 ```
 
 ### 3.3 What happens on one request
@@ -139,428 +144,455 @@ sequenceDiagram
     autonumber
     actor A as Support agent
     participant G as Gateway
-    participant C as Redis cache
+    participant C as Redis
     participant T as Triage
     participant R as Retrieval
-    participant E as Embedding svc
-    participant V as Qdrant
-    participant L as Generation + Ollama
+    participant L as Generation + LLM
+    participant P as PostgreSQL
 
-    A->>G: POST /v1/resolve with complaint text
-    G->>G: validate, check API key, rate limit, mask PII
-    G->>C: seen this complaint before?
-    C-->>G: no (cache miss)
-    G->>T: classify complaint
-    T->>E: embed complaint
-    T->>V: 15 nearest labelled tickets
-    T-->>G: category, product, severity, sentiment, confidence
-    G->>R: search with complaint + triage hints
-    R->>E: dense + sparse vectors
-    R->>V: hybrid search, top 20
-    R->>E: rerank top 20
-    R-->>G: top 5 sources with scores
-    alt best score below threshold
-        G-->>A: no confident match, recommend escalation
-    else sources are good
-        G->>L: draft resolution using only these sources
-        L->>L: verify every citation exists and is supported
-        L-->>G: steps + citations
-        G->>C: store result
-        G-->>A: triage + resolution + sources
+    A->>G: POST /v1/resolve (complaint)
+    G->>G: check API key and rate limit, mask personal details
+    G->>C: answered this exact complaint already?
+    C-->>G: no
+    G->>T: classify
+    T->>R: 25 most similar past tickets
+    T-->>G: category, product, severity, sentiment (or "unknown")
+    G->>R: 3 tickets + 2 articles
+    R-->>G: sources with similarity
+    alt closest source below 0.72
+        G-->>A: nothing similar enough: escalate (the model is not asked)
+    else similar sources found
+        G->>L: draft using only these sources
+        L->>L: drop steps without a real citation, score each step against its source
+        L-->>G: steps with citations
+        G->>P: audit log (answer, sources, model, prompt version)
+        G->>C: cache the answer
+        G-->>A: labels + resolution + sources
     end
 ```
 
+The web page makes this call twice: first with `generate: false` (labels and sources, under a
+second), then the full call (about 30 seconds with a local model on a CPU). The agent can start
+reading past tickets while the draft is being written.
+
 ---
 
-## 4. The services (what each one does)
+## 4. The services
 
-Six small services of our own, plus ready-made infrastructure. Each service is a FastAPI app of roughly 100–250 lines.
+Seven small programs of our own, plus ready-made infrastructure.
 
-| # | Service | Port | Its one job | Talks to |
-|---|---|---|---|---|
-| 1 | **API Gateway** | 8000 | Single front door. Checks API key, rate limits, masks personal data, checks cache, calls the other services in order, saves an audit log, accepts feedback. | Triage, Retrieval, Generation, Redis, Postgres |
-| 2 | **Triage** | 8001 | Reads the complaint and returns category, product, severity, sentiment, each with a confidence score. | Embedding, Qdrant |
-| 3 | **Retrieval** | 8002 | Finds the most similar resolved tickets and KB chunks (hybrid search, then rerank). | Embedding, Qdrant |
-| 4 | **Generation** | 8003 | Builds the prompt, calls the LLM, returns numbered steps with citations, verifies the citations. | Ollama, Embedding |
-| 5 | **Embedding** | 8004 | The only place small ML models live: text → dense vector, text → BM25 sparse vector, rerank a list. | — |
-| 6 | **Ingestion Worker** | 8005 | Background worker. Takes new/updated tickets and KB articles from the queue, cleans, chunks, embeds, saves. Also runs the "discover new ticket classes" job. | Redis Stream, Embedding, Qdrant, Postgres |
-| – | **Agent UI** | 8501 | Simple Streamlit page: paste complaint, see triage badges, resolution, clickable sources, thumbs up/down. | Gateway |
+| Service | Port | Its one job | Talks to |
+|---|---|---|---|
+| **Gateway** | 8000 | The only front door. API keys (agent and admin), rate limit, PII masking, cache, runs the steps in order, checkpoints, audit log, feedback, data and class endpoints. | Triage, Retrieval, Generation, Redis, PostgreSQL |
+| **Triage** | 8001 | Category, product, severity and sentiment, each with a reason or a confidence. Says "unknown" when unsure. | Retrieval, Embedding |
+| **Retrieval** | 8002 | Finds the most similar tickets and KB sections (hybrid search). | Embedding, Qdrant |
+| **Generation** | 8003 | Builds the prompt, calls the LLM, checks the answer, falls back to quoting the source if the model fails. | Ollama, Embedding |
+| **Embedding** | 8004 | The only place the small models live: text to dense vector, text to BM25 vector. | none |
+| **Ingestion worker** | 8005 (metrics) | Keeps the search index in step with PostgreSQL. Retries, dead-letter list, safety sweep. | Redis, PostgreSQL, Embedding, Qdrant |
+| **Web page** | 8501 | Paste a complaint, see labels, the drafted fix, its sources, and give feedback. | Gateway |
 
-**Infrastructure (ready-made Docker images, no code to write):**
-
-| Component | Why it is there |
+| Infrastructure | Why it is there |
 |---|---|
-| **Qdrant** | Vector database. Stores embeddings and does hybrid search. |
-| **PostgreSQL** | Source of truth: tickets, KB articles, taxonomy (list of classes), feedback, request audit log. |
-| **Redis** | Cache for repeated complaints, rate-limit counters, and the ingestion queue (Redis Streams). |
-| **Ollama** | Runs a free LLM locally (`llama3.2:3b` by default). No API key, no cost, works offline. |
-| **Prometheus + Grafana** | Collect and display health metrics; fire alerts. |
+| **PostgreSQL** | Source of truth: tickets, articles, ticket classes, audit log, feedback, class proposals. |
+| **Qdrant** | Search index. Can always be rebuilt from PostgreSQL. |
+| **Redis** | Answer cache, rate-limit counters, the ingestion queue. |
+| **Ollama** | Runs the LLM locally. No API key, no cost. |
+| **Prometheus, Grafana** | Collect the numbers, check the alert rules, show the dashboard. |
 
-### Main API contract
+### The main API call
 
-`POST /v1/resolve`
+`POST /v1/resolve` with header `X-API-Key`
 
 ```json
 { "complaint": "My broadband drops every evening around 8 and I've already restarted the router twice, I work from home and this is costing me" }
 ```
 
-Response (shortened):
+Response (shortened; the field names are real, the values are an example):
 
 ```json
 {
   "request_id": "9f1c...",
   "triage": {
-    "category":  {"label": "connectivity_intermittent", "confidence": 0.86},
+    "category":  {"label": "connectivity_intermittent", "confidence": 0.86, "best_guess": "connectivity_intermittent"},
     "product":   {"label": "broadband", "confidence": 0.93},
-    "severity":  {"label": "high", "reasons": ["business impact", "repeat issue"]},
-    "sentiment": {"label": "negative", "score": -0.62}
-  },
-  "resolution": {
-    "summary": "Likely evening network congestion, not a router fault.",
-    "already_tried": ["restarted router"],
-    "steps": [
-      {"n": 1, "text": "Run a line test between 7 and 9 pm to confirm peak-hour drops.", "citations": ["KB-014"]},
-      {"n": 2, "text": "Move the router to a less crowded Wi-Fi channel.", "citations": ["T-1042", "KB-014"]}
-    ],
-    "escalate": false,
-    "grounded": true
+    "severity":  {"label": "high", "reasons": ["business_impact"]},
+    "sentiment": {"label": "negative"},
+    "needs_review": false
   },
   "sources": [
-    {"id": "KB-014", "type": "kb", "title": "Evening broadband drops", "score": 0.91},
-    {"id": "T-1042", "type": "ticket", "title": "Wifi dies every night", "score": 0.88}
+    {"id": "KB-001", "source_type": "kb", "title": "Evening broadband drops caused by peak-hour congestion", "similarity": 0.91}
   ],
-  "meta": {"model": "llama3.2:3b", "prompt_version": "v3", "index_version": "2026-10-03", "latency_ms": {"triage": 45, "retrieval": 210, "generation": 9400}}
+  "resolution": {
+    "mode": "llm",
+    "summary": "Peak-hour congestion on the local network is the most likely cause.",
+    "already_tried": ["restarted the router twice"],
+    "steps": [
+      {"n": 1, "text": "Run a remote line test at peak time.", "citations": ["KB-001", "T-000481"],
+       "support": 0.93, "verified": true, "repeats_already_tried": false}
+    ],
+    "grounded": true
+  },
+  "escalate": false,
+  "meta": {"cached": false, "degraded": [], "confident_match": true, "top_similarity": 0.91,
+           "model": "llama3.2:3b", "prompt_version": "v2", "index_version": "12",
+           "latency_ms": {"triage": 180, "retrieval": 90, "generation": 31000, "total": 31300}}
 }
 ```
 
-Other endpoints: `POST /v1/tickets` and `POST /v1/kb` (add/update data), `POST /v1/feedback`, `GET /v1/admin/class-proposals`, and `/health`, `/ready`, `/metrics` on every service.
+Other endpoints on the gateway:
+
+| Endpoint | Who | What |
+|---|---|---|
+| `POST /v1/feedback` | agent | Helpful or not, a comment, and the right category if ours was wrong |
+| `GET /v1/taxonomy` | agent | The ticket classes in use |
+| `POST /v1/tickets`, `PUT /v1/kb/{id}`, `DELETE /v1/documents/{id}` | admin | Add, update or retire a ticket or article |
+| `POST /v1/taxonomy`, `DELETE /v1/taxonomy/{kind}/{name}` | admin | Add or retire a class |
+| `GET /v1/classes/proposals`, `POST .../approve`, `POST .../reject` | admin | Review new classes suggested by the discovery job |
+| `GET /v1/documents/{id}`, `GET /v1/ingest/status` | admin | Has the search index caught up? |
+| `/health`, `/ready`, `/metrics` | none | On every service |
 
 ---
 
 ## 5. How each requirement is solved
 
-### 5.1 Requirement 1 — Parse the complaint (Triage)
+### 5.1 Requirement 1: parse the complaint (triage)
 
 | Field | How | Why this way |
 |---|---|---|
-| **Category / intent** | k-nearest-neighbours (kNN): embed the complaint, fetch the 15 most similar *already-labelled* tickets, take a weighted vote. | No training step. A new class works as soon as a few labelled examples exist. Takes milliseconds. |
-| **Product** | Same kNN vote (broadband, mobile, fibre, TV, landline, billing account). | Same benefits. |
-| **Severity** | kNN vote **plus** simple business rules that raise it: outage words, repeat contact, business impact, vulnerable customer. Returns the reasons. | Severity depends on business policy, so rules must be visible and editable. |
-| **Sentiment** | Small pretrained sentiment model (start with VADER; upgrade to a small transformer if evals show it is weak). | Sentiment classes never change, so a ready-made model is enough. |
-| **Low confidence** | If the vote share is below a threshold (e.g. 0.5), label = `unknown` and flag the ticket for review. | Honest "I don't know" is better than a confident wrong label, and it feeds new-class discovery (5.3). |
+| **Category, product** | The 25 most similar past tickets vote. Closer tickets get a much bigger vote. | No training step. A new class works as soon as labelled tickets exist. Milliseconds per request. |
+| **Severity** | A baseline from similar past tickets, moved up or down by urgency signals (business impact, outage, vulnerable customer). The reasons are returned. | Severity is business policy, so the rules must be visible and editable. |
+| **Sentiment** | Tone signals. No signal found means neutral. | |
+| **Signals** | Each signal is a short list of example sentences in `services/triage/signals.yaml`. A sentence of the complaint matches a signal when its **meaning** is close to an example. | Catches wordings a keyword list would miss, and support staff can edit the examples without touching code. |
+| **"unknown"** | If nothing similar exists, or the vote is too split, the label is `unknown` and the complaint is flagged for review. | An honest "I don't know" is better than a confident wrong label. |
+| **Thresholds** | Fitted by `evals/eval_triage.py --calibrate` on one half of the eval data and reported on the other half. | No hand-picked numbers, and no grading on the data used for tuning. |
 
-*Optional upgrade:* when kNN confidence is low, ask the LLM for a structured JSON classification (cheap method first, expensive method only when needed).
+### 5.2 Requirement 2: retrieve and generate (RAG)
 
-### 5.2 Requirement 2 — Retrieve and generate (RAG)
+**Retrieval**
 
-**Retrieval pipeline**
-
-| Step | What happens | Simple reason |
-|---|---|---|
-| 1. Embed query | Dense vector (`BAAI/bge-small-en-v1.5`, 384 numbers) + sparse BM25 vector. | Meaning + exact words. |
-| 2. Hybrid search | Qdrant runs both searches and merges them with Reciprocal Rank Fusion (RRF). Top 20. | Semantic catches paraphrases, keyword catches codes and plan names. |
-| 3. Soft boost | Results with the same product as triage get a small boost (hard filter only if triage confidence is high). | Uses triage without letting a wrong label hide good results. |
-| 4. Rerank | Cross-encoder reranker re-scores the 20 and keeps the best 5. | A slower but smarter model on a small list. |
-| 5. Threshold | If the best score is too low → return "no confident match, escalate". | Prevents confident nonsense. |
-
-**What gets embedded (an important design choice):**
-
-- **Past tickets:** embed the *problem description* (subject + customer text), and keep the *resolution steps* as attached data. A new complaint should match old complaints, not old answers.
-- **KB articles:** split into chunks of about 300 tokens by heading with a small overlap, so each chunk is one focused topic.
-
-**Generation pipeline**
-
-1. Build a prompt containing the complaint, triage result, and the 5 sources, each tagged with its ID (`[T-1042]`, `[KB-014]`).
-2. Rules in the prompt: use only the sources; cite an ID after every step; do not repeat steps the customer already tried; if the sources do not cover the issue, say so.
-3. Ask the LLM for **structured JSON** (Ollama supports a JSON schema), so the output is always parseable.
-4. **Verify after generation** (guardrails):
-   - Every cited ID must be one of the 5 retrieved sources. Unknown IDs are removed.
-   - Each step is compared (embedding similarity) with the source it cites. Unsupported steps are flagged.
-   - Any step without a citation is dropped or marked "unverified".
-5. **Fallback:** if the LLM is down or times out, return an "extractive" answer, meaning the resolution steps copied straight from the top matching ticket/article. The service still works without any LLM.
-
-### 5.3 Requirement 3 — Evolving data and ticket classes
-
-**Evolving data (new tickets, changed articles)**
-
-| Situation | How it is handled |
+| Step | What happens |
 |---|---|
-| A ticket gets resolved | Gateway receives `POST /v1/tickets` → puts an event on the Redis Stream → ingestion worker cleans, embeds, and upserts it. Searchable within seconds, no retraining, no restart. |
-| A KB article is edited | Upsert by article ID with a version number; old chunks are deleted, new ones added. |
-| A resolution becomes outdated | `is_active = false` flag hides it from search; a recency boost prefers newer fixes. |
-| The same event arrives twice | IDs are deterministic (hash of ticket ID), so upserts are idempotent: no duplicates. |
-| A message fails | Retried 3 times, then moved to a dead-letter stream for inspection. |
-| The embedding model is upgraded | Build a new Qdrant collection in the background, then switch an alias (blue-green re-index). Zero downtime, easy rollback. |
+| 1. Embed the complaint | One dense vector (`BAAI/bge-small-en-v1.5`, 384 numbers) and one BM25 vector. |
+| 2. Search per source type | Tickets and KB articles are searched separately, so tickets cannot crowd out articles. |
+| 3. Merge | Dense and BM25 results are merged by rank (Reciprocal Rank Fusion), with the dense side counting three times as much. |
+| 4. Return | 3 tickets and 2 articles, each with its **cosine similarity** to the complaint. |
 
-**Evolving classes (brand-new problem types)**
+What gets embedded:
 
-1. Classes are **rows in a `taxonomy` table**, not hard-coded in the program.
-2. The kNN classifier learns a new class the moment a few labelled examples are indexed. No model retraining.
-3. Low-confidence tickets go into an **`unknown` bucket**.
-4. A scheduled **discovery job** clusters the unknown tickets (HDBSCAN on their embeddings). A cluster of, say, 20+ similar unknowns means a new problem type is emerging (e.g. "5G SIM swap failures").
-5. The LLM suggests a name for the cluster; a human approves it in the admin endpoint; the class is added to the taxonomy and those tickets get labelled.
-6. **Drift monitoring** watches the `unknown` rate, class distribution shift, and average top-match score. A rising unknown rate is the alarm that the world has changed.
-7. **Feedback loop:** agent thumbs up/down is stored; good answers become future eval examples, bad ones get reviewed.
+- **Tickets:** the customer's *problem* text. The resolution steps travel along as stored data.
+  A new complaint should match old complaints, not old answers.
+- **KB articles:** split at each heading. Small sections match more precisely, and each section
+  carries the whole article for the LLM to read.
+
+A reranker was built and measured, and is switched off: it added about 900 ms per search and did
+not improve accuracy on this data (see DESIGN_DECISIONS.md).
+
+**Generation**
+
+1. Sources that say the same thing are grouped. The model sees the best three, shortened.
+2. The prompt puts the complaint and the sources in clearly marked blocks and says they are data,
+   not instructions.
+3. The model must reply in a **JSON format** in which a citation can only be one of the source
+   IDs it was shown. An invented source ID is impossible, not just unlikely.
+4. **Checks after the model answers:**
+   - a step without a real citation is dropped;
+   - each step is compared by meaning with the source it cites, and marked "not verified" if they are far apart;
+   - a step that repeats something the customer already tried is flagged.
+5. **Fallback:** if the model is down, too slow, or returns something unusable twice, the
+   resolution steps of the best matching source are quoted directly, and labelled as quoted.
+   The system returns something useful with no model at all.
+
+### 5.3 Requirement 3: evolving data and ticket classes
+
+**New data**
+
+```
+admin --> gateway --> PostgreSQL (saved first)
+                  \-> Redis Stream: "ticket T-123 changed"
+                                |
+                        ingestion worker: read the CURRENT document from PostgreSQL,
+                        embed it, write it to Qdrant, mark it as indexed
+```
+
+| Situation | What happens |
+|---|---|
+| A ticket is resolved | `POST /v1/tickets`. Searchable a few seconds later. No retraining, no restart. |
+| An article is edited | `PUT /v1/kb/{id}`. New sections are written first, leftover old sections removed after, so the article never disappears from search. |
+| A fix is outdated | `DELETE /v1/documents/{id}`. Removed from search, kept in PostgreSQL so old answers can still be traced. |
+| The same note arrives twice | Harmless. The note only says which document changed, and index IDs are derived from the document ID. |
+| Indexing fails | Retried. After 5 failures the note moves to a dead-letter list, with an alert. |
+| The note is lost | Every minute a sweep compares `indexed_at` with `updated_at` in PostgreSQL and repairs anything behind. |
+| Cached answers | The worker raises an index version that is part of every cache key, so an answer cached before a change is not served after it. |
+| A new embedding model | Services search an alias. A new collection is built in the background and the alias is switched. |
+
+**New classes**
+
+1. Classes are **rows in a `taxonomy` table**. Adding one is an API call.
+2. Triage needs no retraining: it votes over labelled tickets, so a class appears as soon as tickets carry it.
+3. A ticket with a class that does not exist is refused, so a typo cannot create a class.
+4. **Spotting a class nobody has named yet.** One complaint about a new kind of problem looks just
+   as familiar as any other (measured: only 5% are flagged). A group of them stands out. So the
+   agent can mark "none of the categories fits", and a discovery job groups similar flagged
+   complaints and proposes a class with examples and keywords.
+5. A person approves or rejects each proposal and gives the class its name.
 
 ---
 
 ## 6. Data
 
-### 6.1 Dataset choice
+Synthetic telecom support data, generated by `scripts/generate_data.py` (fixed seed, so anyone
+gets the same files). The public datasets suggested in the brief are not telecom or have no
+labels, and synthetic data gives an answer key for the evals.
 
-| Option | Verdict |
-|---|---|
-| Hugging Face *customer-support-tickets* | General IT/product support, not telecom; no sentiment labels; non-commercial licence. Good for a generalisation test only. |
-| *Telecom Conversation Corpus* | Telecom, but raw chat turns with no labels and no clean resolution field. Good as realistic unlabelled test queries. |
-| **Synthetic telecom tickets (chosen)** | The brief allows it. Gives exact telecom domain, all four labels, and **known correct answers for evals**. |
+| File | Rows | What it is |
+|---|---|---|
+| `tickets.jsonl` | 1,440 | Resolved tickets: 36 hand-written problem scenarios, 40 wordings each. Indexed. |
+| `kb_articles.jsonl` | 41 | One article per scenario plus 5 general ones. Indexed. |
+| `test_queries.jsonl` | 360 | Complaints in **wording that never appears in the index**. Used only by evals. |
+| `out_of_scope.jsonl` | 30 | Questions that are not about telecom. The system should refuse them. |
+| `holdout_*.jsonl` | 160 / 40 / 4 | Two whole classes (eSIM, fraud) kept out of the index, to test new classes. |
 
-### 6.2 How the synthetic data is built
-
-1. Write about **40 "issue scenarios"** by hand (e.g. evening congestion, double billing, SIM not activating, roaming not working, set-top box error E-102, number porting delay). Each has: category, product, root cause, resolution steps.
-2. Write **one KB article per scenario** (about 40–50 articles).
-3. Generate **about 50 differently-worded complaints per scenario** using templates plus the local LLM for paraphrasing, varying tone, severity and detail → roughly **2,000 tickets**.
-4. Each ticket keeps its `scenario_id`. That is the answer key: for any test complaint, the relevant documents are the ones with the same `scenario_id`.
-5. **Split:** 80% go into the index, 20% are held out as test queries (never indexed, to avoid cheating).
-6. **Hold out 3–4 whole scenarios** to demo "a new class appears".
-7. Add about **30 out-of-scope queries** (e.g. "what's the weather") to test that the system refuses properly.
-8. Fixed random seed and the generator script are committed, so anyone can reproduce the data.
-
-*Honest limitation to state in the interview:* synthetic data makes scores look better than real life. Mitigation: also test on real-style complaints taken from the Telecom Conversation Corpus.
-
-### 6.3 Storage layout
+Every row keeps its `scenario_id`. That is the answer key: a source is "right" for a complaint
+when both come from the same scenario. A test checks that test wordings never leak into the index.
 
 | Store | Holds |
 |---|---|
-| **Postgres** `tickets` | id, subject, description, resolution_steps, category, product, severity, sentiment, scenario_id, created_at, is_active |
-| **Postgres** `kb_articles` | id, title, body, product, version, updated_at, is_active |
-| **Postgres** `taxonomy` | class name, type (category/product), description, status (active/proposed), created_at |
-| **Postgres** `resolve_requests` | request_id, masked complaint, triage result, source IDs, answer, latencies, model/prompt/index versions |
-| **Postgres** `feedback` | request_id, thumbs, comment, edited_answer |
-| **Qdrant** `support_knowledge` (alias) | one point per ticket or KB chunk: dense vector, sparse vector, payload (source_type, labels, dates, is_active, embedding_model) |
+| PostgreSQL `tickets`, `kb_articles` | The documents, with `is_active`, `updated_at`, `indexed_at` |
+| PostgreSQL `taxonomy`, `class_proposals` | Ticket classes and suggested new ones |
+| PostgreSQL `resolve_requests`, `feedback` | Audit log (masked complaint, labels, sources, answer, model, prompt and index version, timings) and agent feedback |
+| Qdrant `support_knowledge` (alias) | One point per ticket or KB section: dense vector, BM25 vector, labels, text |
 
 ---
 
-## 7. Technology choices and design decisions
+## 7. Technology choices
 
-| Decision | Chosen | Alternative considered | Why |
-|---|---|---|---|
-| Language / framework | Python + FastAPI | Flask, Node | Async, automatic API docs, Pydantic validation, standard for ML services. |
-| Service communication | REST for queries, Redis Streams for ingestion | gRPC, Kafka | Simple and debuggable now; Kafka is the swap-in at high volume. |
-| Vector database | Qdrant | pgvector, Chroma, FAISS | Built-in hybrid search, metadata filtering, aliases, runs in one container, scales to a cluster. pgvector = fewer parts but weaker hybrid search. |
-| Embedding model | `bge-small-en-v1.5` via FastEmbed (ONNX) | OpenAI embeddings, large models | Free, CPU-fast, small images (no PyTorch needed). |
-| Search method | Hybrid + reranker | Dense only | Measured in the ablation table (section 8.3). |
-| LLM | Ollama, `llama3.2:3b` | Paid APIs | Free, private, runs for the reviewer with no key. Called through the OpenAI-compatible API, so switching provider is one env variable. |
-| Triage method | kNN over labelled tickets | Fine-tuned classifier, LLM for everything | No retraining when classes change; milliseconds, not seconds; easy to evaluate. |
-| Separate embedding service | Yes | Load the model in each service | One copy in memory, one version everywhere, scales on its own. |
-| Read path vs write path | Separate (sync vs async) | One service does both | Heavy indexing must never slow down agent queries. |
-| Source of truth | Postgres; Qdrant is a rebuildable index | Vector DB only | If the index is lost or the model changes, rebuild from Postgres. |
-| No confident match | Refuse and escalate | Always answer | A wrong fix costs more than no fix. |
-| Repo layout | One repository, one folder per service, shared `libs/common` | Six repositories | Easy for a reviewer to clone and run. |
+The full list, with alternatives and the measurements behind them, is in
+[DESIGN_DECISIONS.md](DESIGN_DECISIONS.md). The ones that shape the system:
+
+| Decision | Chosen | Why |
+|---|---|---|
+| Search | Hybrid, dense weighted 3x, no reranker | Measured. Matches the best accuracy and still finds exact codes. The reranker cost 900 ms for no gain. |
+| Triage | Nearest-neighbour vote plus example-based signals | No retraining when classes change. Every label comes with a reason. |
+| LLM | `llama3.2:3b` through an OpenAI-compatible API | Free, runs for a reviewer with no key. A hosted model is a change of three settings. |
+| Model output | JSON constrained to a schema | Always parseable, and source IDs cannot be invented. |
+| No model available | Quote the best source | The system never returns nothing. |
+| Read path and write path | Separate: synchronous answers, queued indexing | Heavy indexing must never slow an agent down. |
+| Source of truth | PostgreSQL. Qdrant is a rebuildable index. | If the index is lost or the model changes, rebuild it. |
+| Queue safety | Stream for speed, database sweep for certainty | Writing to two systems cannot be made atomic. |
+| Embedding service | One service owns the models | One copy in memory, one version everywhere. |
+| Models in images | Downloaded and verified at build time | Fast, repeatable starts with no internet. A broken model fails the build. |
 
 ---
 
 ## 8. Checkpoints, evals and monitoring
 
-### 8.1 Checkpoints (quality gates inside the pipeline)
+### 8.1 Checkpoints inside the pipeline
 
 | # | Checkpoint | If it fails |
 |---|---|---|
-| 1 | Input validation (length, empty, language) | 422 error with clear message |
-| 2 | PII masking (phone, email, account number) before embedding, LLM and logs | Never skipped |
-| 3 | Triage confidence ≥ threshold | Label `unknown`, flag for review |
-| 4 | Retrieval best score ≥ threshold | No generation; recommend escalation |
-| 5 | LLM output matches the JSON schema | Retry once, then extractive fallback |
-| 6 | Citations exist and are supported | Remove/flag the step, set `grounded: false` |
-| 7 | Human review | The agent approves or edits; feedback saved |
+| 1 | API key and rate limit | 401, 403 or 429 |
+| 2 | Input validation | 422 with a clear message |
+| 3 | PII masking, before any other service, the cache or the database sees the text | Never skipped |
+| 4 | Triage confidence | Label `unknown`, flag for review |
+| 5 | Closest source at least 0.72 similar | The model is not asked. Escalation is recommended. |
+| 6 | Model output follows the JSON format | One retry, then quote the source |
+| 7 | Every step has a real citation | The step is dropped |
+| 8 | Each step is close in meaning to its cited source | Marked "not verified", `grounded: false` |
+| 9 | Step repeats what the customer tried | Flagged |
+| 10 | A person reviews the draft | Feedback and category corrections are stored |
 
-### 8.2 Offline evals (run with `make eval`, also in CI)
+### 8.2 Evals and what they measured
 
-| What | Metric | Starting target (replace with your measured numbers) |
-|---|---|---|
-| Triage | Accuracy and macro-F1 for each of the 4 fields | ≥ 0.85 |
-| Retrieval | Recall@5, MRR, nDCG@10 on held-out queries | Recall@5 ≥ 0.85 |
-| Generation: citations | % of citations that point to a retrieved source | 100% |
-| Generation: groundedness | % of steps supported by their cited source | ≥ 0.80 |
-| Generation: usefulness | Similarity of the answer to the known correct resolution | track the trend |
-| Refusal | % of out-of-scope queries correctly refused | ≥ 0.90 |
-| New class | After adding 10 examples of a held-out scenario, is it classified correctly? | ≥ 0.80 |
+Embedding model `BAAI/bge-small-en-v1.5`, LLM `llama3.2:3b`, laptop CPU. Result files are in
+`evals/results/`.
 
-CI rule: if Recall@5 or citation validity drops below target, the build fails. This stops a bad change from being merged.
+**Search** (`eval_retrieval.py`, 360 complaints in unseen wording)
 
-### 8.3 Ablation table (also counts as "additional exploration")
+| Setup | Right ticket first | Right ticket in top 3 | Right source among the 5 given to the LLM | Median time |
+|---|---|---|---|---|
+| Keyword only (today's baseline) | 0.397 | 0.525 | 0.608 | 50 ms |
+| Dense only | 0.542 | 0.714 | 0.822 | 50 ms |
+| Hybrid, equal weights | 0.489 | 0.697 | 0.789 | 53 ms |
+| **Hybrid, dense 3x (in use)** | **0.550** | **0.714** | **0.831** | 54 ms |
 
-Run the same test queries through each setup and report the numbers:
+Semantic search beats keyword search: the right ticket comes first for 55% against 40%.
 
-| Setup | Recall@5 | MRR | Latency |
+**Triage** (`eval_triage.py`, 215 complaints the tuning never saw)
+
+| Label | Accuracy |
+|---|---|
+| Category | 0.711 (0.756 if "unknown" is not counted as wrong) |
+| Product | 0.783 |
+| Severity | 0.594 exact, 0.933 within one level |
+| Sentiment | 0.828 |
+| Off-topic questions flagged "unknown" | 0.867 |
+| New-class complaints flagged "unknown" | 0.050 |
+
+**New data and new classes** (`eval_evolving.py`)
+
+| Resolved tickets added per new problem type | Right past ticket in top 3 | Category correct | Seconds until searchable |
 |---|---|---|---|
-| Keyword only (BM25) — today's baseline | ? | ? | ? |
-| Dense only | ? | ? | ? |
-| Hybrid (dense + BM25) | ? | ? | ? |
-| Hybrid + reranker | ? | ? | ? |
+| 0 | 0.000 | 0.000 | |
+| 3 | 0.450 | 0.000 | 3.2 |
+| 10 | 0.625 | 0.275 | 3.7 |
+| 40 | 0.625 | 0.475 | 4.7 |
 
-This table is the proof that semantic search beats keyword search, which is the whole point of the project.
+Search learns a new problem from a handful of tickets. Triage is slower and uneven: fraud was
+learned well (18 of 20), eSIM hardly at all (1 of 20), because eSIM complaints sit close to two
+existing classes that have many more tickets. The discovery job separated the two new classes
+into two clean groups at a similarity of 0.85, and only there (they merge at 0.80, nothing groups at 0.90).
 
-### 8.4 Online monitoring (system health)
+**Final answers** (`eval_answers.py`, through the gateway)
 
-| Group | Metrics | Example alert |
+| Group | Complaints | Cites the right problem | Cites a wrong problem | Escalated, no answer |
+|---|---|---|---|---|
+| Known problems | 20 | 14 | 6 | 0 |
+| New class (no fix exists) | 6 | 0 | 6 | 0 |
+| Off topic | 30 | 0 | 7 | 23 |
+
+- 70% of answers to known problems cite the right problem. 5 of the 6 wrong ones were search
+  misses, 1 was the model. When search finds the right source, the model uses it 14 times out of 15.
+- Every step was backed by its cited source. That check catches invented steps. It cannot catch a
+  real step copied from a source about the wrong problem.
+- "Already tried" was noticed in 11 of 11 complaints and repeated as a step once.
+- The 0.72 cut-off stops 77% of off-topic questions and 1.4% of real complaints.
+- **The model does not know when it does not know.** It drafted a fix for every new-class
+  complaint and every off-topic question that passed the cut-off. An attempt to make it decide
+  explicitly (prompt v3) made it refuse everything, including the answers it gets right, so it
+  was rejected and is kept behind a setting for a larger model.
+- A typical answer takes 31 seconds.
+
+### 8.3 Monitoring
+
+| Question | What is watched | Example alert |
 |---|---|---|
-| **Traffic and errors** | Requests/sec, error rate per service | Error rate > 2% for 5 min |
-| **Latency** | p50 / p95 / p99 per stage (triage, retrieval, rerank, generation) | p95 retrieval > 1 s |
-| **LLM** | Tokens/sec, timeouts, fallback rate | Fallback rate > 10% |
-| **Quality signals** | Avg top retrieval score, refusal rate, ungrounded-answer rate, thumbs-up rate | Thumbs-up rate drops 20% week over week |
-| **Drift** | `unknown` class rate, class distribution shift | Unknown rate > 15% |
-| **Pipeline** | Ingestion queue lag, dead-letter count, index size | Queue lag > 5 min |
-| **Cache** | Hit rate | — |
+| Is it up and fast? | `up`, error share, time per stage | A service is down for a minute. More than 5% of requests fail. |
+| Are the answers good? | Share drafted by the model, steps failing the source check, agent feedback, category corrections | More than 40% "not helpful". The model is not being used. |
+| Has the world changed? | Similarity of the closest match, share escalated, share triage cannot label | Half of recent complaints are below 0.75 similarity. |
+| Is new data arriving? | Queue length, time since the last indexed document, dead letters | Work is waiting and nothing was indexed for 10 minutes. |
 
-Also: `/health` (is the process alive) and `/ready` (are its dependencies reachable) on every service; structured JSON logs with one `request_id` passed through all services so a single request can be traced end to end.
+- **16 alert rules**, each with what is wrong and what to do first. They have unit tests
+  (`promtool test rules`), run in CI.
+- **One Grafana dashboard**, built from a short Python list. A test checks every query against
+  the metric names in the code, so a renamed metric cannot leave a silently empty panel.
+- **`scripts/health_check.py`**: one command that checks every service, sends a real complaint
+  and an off-topic question through the gateway, and lists firing alerts.
+- **Logs**: one JSON line per request. The same request ID appears in every service it touched.
+- **CI** (GitHub Actions): code style, 210 fast tests, compose file, Prometheus config and alert tests.
+  21 more tests run against the live system.
 
 ---
 
 ## 9. Production scale considerations
 
-| Area | What we do now (laptop) | What changes at scale |
+| Area | Now (one laptop) | At scale |
 |---|---|---|
-| **Scaling** | One container per service | Services are stateless → run many copies behind a load balancer; Kubernetes with autoscaling |
-| **Vector DB** | Single Qdrant node | Sharding + replication; scalar quantization to cut memory about 4× |
-| **Capacity math** | 2,000 tickets | 1 million tickets × 384 numbers × 4 bytes ≈ 1.5 GB of raw vectors → still fits on one node |
-| **LLM** | Small model on CPU, slow (seconds) | GPU serving (vLLM) or a hosted API; streaming so the agent sees text immediately |
-| **Embedding** | One CPU instance | Batch requests, more replicas, GPU if needed |
-| **Ingestion** | Redis Streams, one worker | Kafka, many workers in a consumer group, back-pressure, dead-letter queue |
-| **Caching** | Exact-match Redis cache | Add semantic cache (reuse the answer for near-identical complaints) |
-| **Reliability** | Timeouts, retries with backoff, extractive fallback | Circuit breakers, multi-zone deployment, backups of Postgres and Qdrant snapshots |
-| **Security** | API key, PII masking, secrets in `.env`, non-root containers | SSO/JWT with roles, secret manager, encryption at rest, audit trail |
-| **Prompt injection** | Ticket text is treated as data inside clear delimiters, never as instructions | Add an input classifier and output filter |
-| **Versioning** | Model, prompt and index version recorded on every response | A/B tests between prompt or model versions |
-| **Cost** | Zero | Biggest cost is the LLM: cache, use small models for triage, large model only for generation |
-| **Multi-language** | English only | Multilingual embedding model (e.g. `bge-m3`) |
-
-**Rough latency on a laptop (estimates, to be replaced by measured numbers):** triage under 100 ms, retrieval + rerank under 500 ms, generation 5–30 s on CPU with a 3B model (about 1–3 s with a GPU or hosted model). So the UI shows triage and sources immediately and the drafted resolution arrives after.
+| **Scaling** | One container per service | Services hold no state, so run several copies behind a load balancer (Kubernetes, autoscaling) |
+| **LLM** | 3B model on CPU, about 31 s per answer | GPU serving or a hosted model: seconds. Stream the answer so text appears at once. |
+| **Model quality** | Cannot judge whether a source fits | A larger model for that one decision. The setting and the eval for it already exist. |
+| **Search quality** | Right source among the five for 83% | A stronger embedding model (one setting, then re-index and re-run the eval) |
+| **Vector database** | One Qdrant node, 1,589 points | 1 million tickets x 384 numbers x 4 bytes is about 1.5 GB: still one node. Beyond that: sharding, replication, quantization. |
+| **Ingestion** | Redis Streams, one worker | More workers in the same group (`--scale ingestion=3`). Kafka at very high volume. |
+| **Cache** | Exact match, one hour, dropped when the index changes | Per-document invalidation. A semantic cache only with its own eval. |
+| **Reliability** | Timeouts, retries, fallback, fail-open cache and limiter, database sweep | Circuit breakers, several zones, backups of PostgreSQL and Qdrant snapshots |
+| **Security** | Agent and admin API keys, PII masking, non-root containers, ports bound to localhost | Single sign-on with roles, a secret manager, encryption at rest |
+| **Prompt injection** | Complaint and sources fenced off as data. Citations limited to real source IDs. | An input classifier and an output filter |
+| **Monitoring** | Prometheus and Grafana on the same machine | Alertmanager to a pager, long-term storage, request tracing |
+| **Versioning** | Model, prompt and index version stored with every answer | A/B tests between prompt or model versions, judged by the same evals |
+| **Cost** | Zero | The LLM is the main cost: cache, stop before the model when nothing matches, small model for most traffic |
+| **Languages** | English | A multilingual embedding model |
 
 ---
 
 ## 10. Repository structure
 
 ```
-ticket-resolution-assistant/
-├── README.md                  # what it is, how to run in 3 commands, screenshots
-├── docker-compose.yml         # starts everything
-├── Makefile                   # make up / seed / eval / test / down
-├── .env.example               # all settings, no secrets
+├── README.md                 how to run it, what each command shows
+├── docker-compose.yml        12 containers, started with one command
+├── .env.example              every setting, no secrets
 ├── docs/
-│   ├── ARCHITECTURE.md        # this file
-│   ├── DESIGN_DECISIONS.md    # short "why" notes
-│   └── EVAL_REPORT.md         # your measured results + ablation table
-├── libs/common/               # shared: config, logging, metrics, schemas
+│   ├── ARCHITECTURE.md       this file
+│   └── DESIGN_DECISIONS.md   each choice, the alternative, and the measurement behind it
+├── libs/common/              shared code: logging, metrics, PII masking, service clients
 ├── services/
-│   ├── gateway/               # each has: app/, tests/, Dockerfile, requirements.txt
-│   ├── triage/
-│   ├── retrieval/
-│   ├── generation/
-│   ├── embedding/
-│   └── ingestion/
-├── ui/                        # Streamlit app
+│   ├── gateway/              front door, orchestration, data and class endpoints
+│   ├── triage/               labels (logic.py holds the rules, signals.yaml the examples)
+│   ├── retrieval/            hybrid search
+│   ├── generation/           prompt, answer checks, fallback
+│   ├── embedding/            the small models
+│   └── ingestion/            indexer, worker, new-class discovery
+├── ui/                       the agent web page (Streamlit)
 ├── data/
-│   ├── scenarios.yaml         # the 40 hand-written issue scenarios
-│   ├── kb/                    # KB articles (markdown)
-│   └── generated/             # tickets.jsonl, test_queries.jsonl
-├── scripts/                   # generate_data.py, seed.py, discover_classes.py
-├── evals/                     # eval_triage.py, eval_retrieval.py, eval_generation.py
-├── monitoring/                # prometheus.yml, grafana dashboard JSON, alert rules
-├── tests/                     # integration tests, load test (Locust)
-└── .github/workflows/ci.yml   # lint + tests + eval gate
+│   ├── scenarios/            40 hand-written problem scenarios (the source of all data)
+│   └── generated/            tickets, articles, test complaints
+├── scripts/                  generate_data, seed, migrate, demo, health_check, discover_classes
+├── evals/                    eval_retrieval, eval_triage, eval_evolving, eval_answers, results/
+├── infra/                    PostgreSQL schema, Prometheus rules, Grafana dashboard, CI workflow
+└── tests/                    210 fast tests, 21 tests against the live system
 ```
 
-**How a reviewer runs it (goal: 3 commands, no API key):**
+How a reviewer runs it (no API key needed):
 
 ```bash
 cp .env.example .env
-make up      # docker compose up: starts all services, pulls the LLM on first run
-make seed    # loads sample data into Postgres and Qdrant
+docker compose up -d --build
+docker compose run --rm tools python scripts/seed.py
 # open http://localhost:8501
 ```
 
----
-
-## 11. Step-by-step build plan
-
-Build order rule: **get a thin version working end to end first, then improve each part.** Three build days plus one buffer day.
-
-### Day 1 — Data and search (the foundation)
-
-| Step | What you build | Simple explanation | Done when |
-|---|---|---|---|
-| **0. Setup** | Install Python 3.11, Docker Desktop, Git, VS Code, Ollama. Create the GitHub repo and folder structure. | Get the tools ready. | `docker --version` and `ollama run llama3.2:3b` both work. |
-| **1. Data** | `scenarios.yaml`, KB articles, `generate_data.py` → tickets + test queries. | Create the "past tickets" the system will search. | You have about 2,000 tickets, 40+ KB articles and a held-out test set. |
-| **2. Infrastructure** | `docker-compose.yml` with Postgres, Qdrant, Redis. | Start the databases with one command. | Qdrant dashboard opens at `localhost:6333/dashboard`. |
-| **3. Embedding service** | FastAPI with `/embed` and `/rerank` using FastEmbed. | The service that turns text into numbers. | Sending two similar sentences returns a high similarity score. |
-| **4. Seed / ingestion (batch)** | `seed.py`: load data into Postgres, embed it, upsert into Qdrant. | Fill the library. | Qdrant shows about 2,000+ points. |
-| **5. Retrieval service** | `/search`: dense first, then add BM25 + RRF, then the reranker. Write `eval_retrieval.py` straight away. | The search engine. Measure after each improvement. | You have Recall@5 numbers for 4 setups (the ablation table). |
-
-### Day 2 — Intelligence and wiring
-
-| Step | What you build | Simple explanation | Done when |
-|---|---|---|---|
-| **6. Triage service** | `/classify`: kNN vote, severity rules, sentiment, `unknown` handling. Write `eval_triage.py`. | The part that labels the complaint. | Accuracy/F1 printed for all 4 fields. |
-| **7. Generation service** | `/generate`: prompt template, JSON output from Ollama, citation check, extractive fallback. | The part that writes the cited answer. | The example complaint returns steps with valid citations, and still returns an answer with Ollama switched off. |
-| **8. Gateway + UI** | `/v1/resolve` calling triage → retrieval → generation; API key, rate limit, cache, request ID, audit log, feedback. Streamlit page. | The front door and the screen. | Paste a complaint in the browser and get the full result. |
-| **9. Evolving data and classes** | `POST /v1/tickets` → Redis Stream → ingestion worker; taxonomy table; discovery job; admin approve endpoint. | Keep the system up to date. | Demo: add a new ticket and find it seconds later; add a held-out scenario and see it move from `unknown` to a proper class. |
-
-### Day 3 — Proof and polish (this is where "production grade" is earned)
-
-| Step | What you build | Simple explanation | Done when |
-|---|---|---|---|
-| **10. Eval harness** | `eval_generation.py`, refusal test, `make eval`, `EVAL_REPORT.md`. | Proof that it works, in numbers. | One command prints every metric in section 8.2. |
-| **11. Monitoring** | `/metrics` on all services, Prometheus, Grafana dashboard, alert rules, JSON logs. | The health dashboard. | Grafana shows latency, errors and quality signals live. |
-| **12. Hardening** | Unit + integration tests, timeouts/retries, Dockerfiles (non-root), GitHub Actions CI, load test with Locust. | Make it sturdy. | CI is green; load test numbers recorded. |
-| **13. Docs + exploration** | README with screenshots and diagram, design decisions, limitations, future work; pick 2–3 items from section 12. | Make it easy to review. | A stranger can clone and run it from the README alone. |
-
-### Buffer day
-
-Fresh clone on a clean folder, run only from the README, fix whatever breaks, record a 2–3 minute demo video, rehearse the explanation.
-
-**If time runs short, cut in this order (last first):** load test → Grafana alerts → LLM fallback for triage → semantic cache. **Never cut:** evals, citation check, README.
+With Ollama installed and `ollama pull llama3.2:3b` done, answers are drafted by the model.
+Without it, answers are quoted from the best matching source, so it still works.
 
 ---
 
-## 12. Additional exploration (pick 2–3)
+## 11. How it was built
 
-| Idea | What it shows |
-|---|---|
-| Ablation table (8.3) | Evidence-based design decisions |
-| Compare 2 local LLMs on groundedness and speed | Model selection by measurement |
-| Semantic cache | Cost and latency thinking |
-| Query rewriting: LLM turns a messy complaint into a clean search query | Retrieval quality improvement |
-| "Already tried" extraction so the answer skips those steps | Deep problem understanding |
-| Real-style queries from the Telecom Conversation Corpus | Honest test beyond synthetic data |
-| Streaming the answer token by token | User-experience thinking |
-| Time-decay ranking for outdated fixes | Handling evolving data |
+Each part was built, measured, and changed where the measurement disagreed with the plan.
 
----
-
-## 13. How this maps to the evaluation rubric
-
-| Rubric dimension | Weight | Where it is covered |
+| Plan | What the measurement said | What changed |
 |---|---|---|
-| Problem background understanding | 15 | Section 1 (agent workflow, example complaint analysis, human-in-the-loop) |
-| Solution depth / production scale | 25 | Sections 5, 9 (read/write split, fallbacks, capacity math, security, re-indexing) |
-| Design decisions | 20 | Section 7 (each choice with alternative and reason) + ablation table |
-| Code | 25 | Sections 10, 11 (clean structure, tests, CI, typed schemas, one-command run) |
-| Checkpoints & evals / monitoring | 15 | Section 8 (quality gates, offline evals, CI gate, dashboards, alerts) |
+| Hybrid search plus a reranker | Equal-weight hybrid was worse than dense alone. The reranker added 900 ms for no gain. | Dense weighted 3x, reranker off |
+| Remove "noise" sentences from the complaint before searching | No gain for tickets | Not built |
+| A similarity threshold to spot new classes | Only 5% of new-class complaints were flagged | Agent corrections plus a grouping job |
+| Discovery threshold 0.80 | The two new classes merged into one group | 0.85 |
+| A prompt rule "escalate if the sources do not fit" | Ignored 13 times out of 13 | Tried making it part of the answer format |
+| The model decides explicitly whether the source fits | It refused everything | Rejected, kept behind a setting |
+
+---
+
+## 12. How this maps to the evaluation
+
+| Dimension | Weight | Where |
+|---|---|---|
+| Problem understanding | 15 | Section 1. "Already tried" handling, the agent as reviewer, escalation instead of guessing. |
+| Solution depth, production scale | 25 | Sections 3 to 5 and 9. Read and write paths, fallbacks, queue with sweep, cache versioning, capacity. |
+| Design decisions | 20 | Section 7, section 11, and DESIGN_DECISIONS.md with the measurements. |
+| Code | 25 | Section 10. 231 tests, CI, typed request models, one-command run. |
+| Checkpoints, evals, monitoring | 15 | Section 8. Ten checkpoints, four evals, 16 tested alerts, a dashboard, a health check. |
 
 | Deliverable | Where |
 |---|---|
 | Architecture diagram | Section 3 |
-| Full executable code on GitHub | Sections 10–11 |
-| Additional exploration | Section 12 |
+| Executable code on GitHub | The repository. README has the commands. |
+| Additional exploration | Section 11, new-class discovery, the match-check experiment, cache versioning |
 | Evals on system health | Section 8 |
 | Production scale considerations | Section 9 |
 
 ---
 
-## 14. Known limitations (say these before the interviewer asks)
+## 13. Known limitations
 
-- Synthetic data is cleaner than real tickets, so real-world scores will be lower.
-- A small local LLM is slower and weaker than hosted models; the design lets you swap it with one setting.
-- kNN triage depends on label quality; wrong labels in old tickets spread to new ones.
-- Sentiment from a simple model misses sarcasm.
-- English only in this version.
+- **It does not know when it does not know.** For a telecom problem the knowledge base does not
+  cover, it drafts a confident answer from the closest wrong source. A person must review every draft.
+- **Search is the bottleneck.** The right source is among the five given to the model for 83% of
+  complaints. Most wrong answers start there.
+- **"Grounded" is not "correct".** The source check proves a step was copied faithfully, not
+  that it answers the right question.
+- **New classes that overlap old ones are learned badly** by a nearest-neighbour vote.
+- **Synthetic data** is cleaner than real tickets, and the test wording is deliberately hard.
+  Real results would differ in both directions.
+- **Small samples.** The answer eval covers 20 known complaints, because each answer takes half a
+  minute on a CPU. The numbers show direction, not precision.
+- **Thresholds were tuned on this dataset** (0.72 cut-off, 0.85 grouping, triage settings).
+  They would need re-tuning on real traffic, and after any change of embedding model.
+- English only. A small local model is slow and weak compared with hosted ones.

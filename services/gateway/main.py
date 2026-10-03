@@ -50,6 +50,7 @@ for _kind in ("relabelled", NONE_OF_THESE):
 class ResolveRequest(BaseModel):
     complaint: str = Field(min_length=1, description="The customer's complaint, as written")
     generate: bool = Field(True, description="False = only labels and sources, skip the slow drafting step")
+    use_cache: bool = Field(True, description="False = always draft a fresh answer (used by the evals)")
 
 
 class FeedbackRequest(BaseModel):
@@ -152,7 +153,7 @@ def create_app(
                 status_code=422, detail=f"complaint is longer than {settings.max_complaint_chars} characters"
             )
         try:
-            response = request.app.state.orchestrator.resolve(body.complaint, body.generate)
+            response = request.app.state.orchestrator.resolve(body.complaint, body.generate, body.use_cache)
         except SearchUnavailableError as error:
             log.error("search unavailable", extra={"fields": {"error": str(error)}})
             raise HTTPException(status_code=503, detail="Search is unavailable. Please try again.") from error
