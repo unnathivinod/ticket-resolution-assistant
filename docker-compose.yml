@@ -116,6 +116,80 @@ services:
       retries: 6
     restart: unless-stopped
 
+  # Generation service: drafts the cited resolution with a language model (Ollama on the host by default)
+  generation:
+    build:
+      context: .
+      dockerfile: services/generation/Dockerfile
+    environment:
+      GENERATION_EMBEDDING_URL: http://embedding:8004
+      GENERATION_LLM_ENABLED: ${LLM_ENABLED:-true}
+      GENERATION_LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:11434/v1}
+      GENERATION_LLM_MODEL: ${LLM_MODEL:-llama3.2:3b}
+      GENERATION_LLM_API_KEY: ${LLM_API_KEY:-not-needed}
+    extra_hosts:
+      # Lets the container reach Ollama running on the host machine (needed on Linux).
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:${GENERATION_PORT:-8003}:8003"
+    depends_on:
+      embedding:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8003/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    restart: unless-stopped
+
+  # API gateway: the single front door. Auth, rate limit, cache, orchestration, audit log, feedback.
+  gateway:
+    build:
+      context: .
+      dockerfile: services/gateway/Dockerfile
+    environment:
+      GATEWAY_TRIAGE_URL: http://triage:8001
+      GATEWAY_RETRIEVAL_URL: http://retrieval:8002
+      GATEWAY_GENERATION_URL: http://generation:8003
+      GATEWAY_REDIS_URL: redis://redis:6379/0
+      GATEWAY_DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      GATEWAY_API_KEYS: ${API_KEYS:-dev-local-key}
+      GATEWAY_RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-30}
+    ports:
+      - "127.0.0.1:${GATEWAY_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      triage:
+        condition: service_healthy
+      retrieval:
+        condition: service_healthy
+      generation:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    restart: unless-stopped
+
+  # Agent UI: a simple web page for support agents
+  ui:
+    build:
+      context: .
+      dockerfile: ui/Dockerfile
+    environment:
+      GATEWAY_URL: http://gateway:8000
+      GATEWAY_API_KEY: ${UI_API_KEY:-dev-local-key}
+    ports:
+      - "127.0.0.1:${UI_PORT:-8501}:8501"
+    depends_on:
+      gateway:
+        condition: service_healthy
+    restart: unless-stopped
+
   # Toolbox: one-off jobs (generate data, load data, run tests and evals).
   # Not started by "docker compose up". Use:  docker compose run --rm tools <command>
   tools:
@@ -132,6 +206,9 @@ services:
       EMBEDDING_URL: http://embedding:8004
       RETRIEVAL_URL: http://retrieval:8002
       TRIAGE_URL: http://triage:8001
+      GENERATION_URL: http://generation:8003
+      GATEWAY_URL: http://gateway:8000
+      GATEWAY_API_KEY: ${UI_API_KEY:-dev-local-key}
     volumes:
       - .:/app
     working_dir: /app

@@ -22,16 +22,58 @@ docker compose ps                                        # all services should s
 docker compose run --rm tools python scripts/seed.py     # load the data (about a minute)
 ```
 
+Then open **http://localhost:8501**, paste a complaint and press **Resolve**.
+
 | Service | URL |
 |---|---|
+| **Agent web page** | http://localhost:8501 |
+| **Gateway API** (the only API a client needs, docs) | http://localhost:8000/docs |
 | Qdrant dashboard | http://localhost:6333/dashboard |
 | PostgreSQL | localhost:5432 |
 | Redis | localhost:6379 |
 | Embedding service (API docs) | http://localhost:8004/docs |
 | Retrieval service (API docs) | http://localhost:8002/docs |
 | Triage service (API docs) | http://localhost:8001/docs |
+| Generation service (API docs) | http://localhost:8003/docs |
 
 If a port is already used on your machine, change it in `.env` (for example `REDIS_PORT=6380`).
+
+## Try it
+
+**In the browser:** http://localhost:8501
+
+**From the command line:**
+
+```bash
+docker compose run --rm tools python scripts/demo.py
+docker compose run --rm tools python scripts/demo.py "I was charged twice this month"
+```
+
+**As an API call** (every request needs the `X-API-Key` header; the local key is in `.env`):
+
+```bash
+curl -X POST http://localhost:8000/v1/resolve \
+  -H "X-API-Key: dev-local-key" -H "Content-Type: application/json" \
+  -d '{"complaint": "My broadband drops every evening around 8"}'
+```
+
+You get the labels, the sources found, and the drafted resolution with a citation on every step.
+With a small local model on a CPU the resolution takes up to a minute; asking the same thing again
+is answered from the cache at once. If no model is running, the answer is quoted directly from the
+best matching source, so the demo still works.
+
+### What the gateway does on every request
+
+| Step | What happens | If it goes wrong |
+|---|---|---|
+| 1. Check the caller | API key, then a per-key limit of 30 requests a minute | 401 or 429 |
+| 2. Mask personal details | Emails, phone and account numbers are replaced before anything else sees them | |
+| 3. Cache | A complaint already answered in the last hour is returned at once | Cache down: carry on without it |
+| 4. Triage | Category, product, severity, sentiment | Triage down: answer without labels |
+| 5. Search | Similar tickets and articles | Search down: 503, there is nothing to answer from |
+| 6. Checkpoint | Nothing similar enough found: no answer is drafted, escalation is recommended | |
+| 7. Draft | Cited, checked resolution | Drafting down: return the sources, recommend escalation |
+| 8. Record | Request, answer and timings go to the `resolve_requests` table; agent feedback to `feedback` | Database down: still answer, count the error |
 
 ## The dataset
 
@@ -91,7 +133,7 @@ docker compose run --rm tools pytest -m integration   # checks against the runni
 - [x] Embedding service
 - [x] Data loading and retrieval (hybrid search, tuned from eval results)
 - [x] Triage service (category, product, severity, sentiment)
-- [ ] Generation service (RAG with citations)
-- [ ] Gateway and agent UI
+- [x] Generation service (RAG with citations, checked answers, fallback without a model)
+- [x] Gateway (auth, rate limit, cache, checkpoints, audit log, feedback) and agent web page
 - [ ] Evolving data and ticket classes
 - [ ] Evals, monitoring, tests and CI

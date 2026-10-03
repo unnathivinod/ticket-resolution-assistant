@@ -127,6 +127,54 @@ Decisions taken:
 | Thresholds | Fitted by `eval_triage.py --calibrate` on a dev half, reported on a test half | Avoids hand-picked numbers and avoids grading on the data used for tuning |
 | Detecting new classes | Not by a per-request threshold. Use agent corrections plus a clustering job over recent tickets | Measurement 3 above: a threshold cannot see them |
 
+## Generation: drafting an answer that can be trusted
+
+The model used is `llama3.2:3b` through Ollama: free, runs on a laptop, no API key. It is a small
+model, so the design assumes it will make mistakes and checks its work instead of trusting it.
+
+| Decision | Chosen | Alternative | Why |
+|---|---|---|---|
+| Output format | The model must return JSON that follows a schema, and a citation can only be one of the source IDs it was shown | Free text with "[1]" style references | The reply is always machine-readable, and an invented source ID is impossible, not just unlikely. |
+| Checking the answer | Each step is compared (by meaning) with the lines of the source it cites. Low match: the step is marked "not verified". No real citation: the step is dropped. | Trust the model, or ask a second model to judge | A citation only proves the model pointed at a source, not that the source says so. This check costs milliseconds; a second model call would cost another minute. |
+| "Already tried" | The model lists what the customer already did, and any step that repeats it is flagged | Leave it to the prompt | The brief's example ("already restarted the router twice") is exactly where a small model slips. |
+| When the model is down, slow or returns rubbish | Quote the resolution steps of the best matching source, clearly labelled as quoted | Return an error | The system always returns something useful, and it runs for a reviewer with no model installed. |
+| Duplicate sources | Sources that say the same thing are grouped, the model sees one of each, citations credit all of them | Send all five | Shorter prompt (faster on a CPU) and less repeated text for the model to get lost in. |
+| Prompt injection | Complaint and sources are fenced off as data, and the prompt says to ignore instructions inside them | Nothing | A complaint is untrusted text typed by anyone. |
+| Provider | Any OpenAI-compatible API, set by three environment variables | Code against Ollama directly | Moving to a hosted model in production is a configuration change, not a code change. |
+| Prompt versioning | `PROMPT_VERSION` is stored with every answer | Not tracked | A drop in quality can be tied to the prompt change that caused it. |
+
+The first real answers changed the prompt (v1 to v2): the model wrote the source ID inside the step
+text, its summary only repeated the complaint, and it padded the answer with a step from a less
+relevant source. v2 tells it not to, and the code strips a trailing ID as a second layer.
+
+Measured on a laptop with no GPU: about 63 seconds per answer. That is why the gateway caches
+answers and why the page shows labels and sources first. Answer quality has not been scored yet;
+that needs its own eval (groundedness, refusal on off-topic questions) and is the next thing to measure.
+
+## Gateway: one front door
+
+The agent web page and any other client only ever talk to the gateway. It runs the steps in order
+(triage, search, draft) and owns everything that is not "AI": who may call, how often, caching,
+the audit log and feedback.
+
+| Decision | Chosen | Alternative | Why |
+|---|---|---|---|
+| Who calls the services | The gateway calls triage, search and drafting in order | The web page calls each service | One place for auth, limits, caching and logging. The inner services are not exposed to clients. |
+| Which failures stop a request | Only search. Triage down: answer without labels. Drafting down: return the sources and recommend escalation. | Fail the request if anything fails | An agent with five relevant past tickets and no draft is still better off than an agent with an error page. |
+| "No confident match" checkpoint | If the closest source is below 0.72 similarity, the model is not asked and escalation is recommended | Always draft an answer | A confident wrong fix costs more than no fix. In the triage eval, three quarters of off-topic questions are below 0.70 and three quarters of real complaints are above 0.80. It also saves a minute of model time. |
+| Cache | Exact-match on the masked, normalised complaint, one hour, in Redis | Semantic cache (similar complaints share an answer) | Safe: the same text always got the same sources. A semantic cache can serve the wrong customer's answer and needs its own eval. |
+| What is cached | Only complete answers produced with every service healthy | Cache everything | A degraded answer must not be replayed for an hour after the service has recovered. |
+| Rate limiter when Redis is down | Let requests through, count the error | Block everything | The callers are our own agents. Blocking the whole desk because the limiter is down is the worse failure. |
+| Audit log | Every answer is stored with the masked complaint, source IDs, model, prompt version and timings | Logs only | Any answer can be traced back to exactly what produced it, and feedback is attached to that record. |
+| Audit log when the database is down | Still answer, count the error, raise an alert from the metric | Fail the request | Availability for the agent first. In a regulated setting this would be flipped to "fail". |
+| Personal data | Masked in the gateway before any other service, the cache or the database sees it | Mask in each service | One place to get right. The inner services mask again as a second layer. |
+| Two-speed response | The page first asks for labels and sources only (under a second), then for the full answer | Wait for everything | The agent can start reading past tickets while a slow local model is still writing. |
+| API key check | Constant-time comparison, only a hash prefix of the key is logged | Plain `==`, log the key | Avoids leaking key contents through timing or logs. |
+
+Known limits, to be honest about: the limiter is a fixed one-minute window (a burst at the window
+edge can reach twice the limit), API keys live in an environment variable (a secret manager in
+production), and the 0.72 checkpoint has not yet been measured end to end.
+
 ## Other decisions
 
 | Decision | Chosen | Alternative | Why |

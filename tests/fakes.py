@@ -68,3 +68,26 @@ class InProcessRetrieval:
 
         request = SearchRequest(query=query, top_k_tickets=top_k_tickets, top_k_kb=top_k_kb, **options)
         return self._searcher.search(request).model_dump()
+
+
+class FakeLLM:
+    """Behaves like LLMClient, but returns prepared replies (or raises prepared errors) instantly."""
+
+    model = "fake-llm"
+
+    def __init__(self, *replies) -> None:
+        self._replies = list(replies)
+        self.calls: list[dict] = []
+        self.is_ready = True
+
+    def ready(self) -> bool:
+        return self.is_ready
+
+    def chat_json(
+        self, system: str, user: str, schema: dict, max_tokens: int = 500, temperature: float = 0.1
+    ):
+        self.calls.append({"system": system, "user": user, "schema": schema})
+        reply = self._replies.pop(0) if len(self._replies) > 1 else self._replies[0]
+        if isinstance(reply, Exception):
+            raise reply
+        return reply, {"prompt_tokens": 120, "completion_tokens": 40}

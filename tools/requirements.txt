@@ -8,4 +8,7 @@ pydantic-settings==2.15.0
 prometheus-client==0.26.0
 # Needed by scripts/seed.py and the retrieval tests
 qdrant-client==1.19.1
-psycopg[binary]==3.3.6
+psycopg[binary,pool]==3.3.6
+# Needed by the gateway tests
+redis==8.1.0
+fakeredis==2.39.0
