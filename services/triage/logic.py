@@ -34,6 +34,8 @@ class Params:
     min_confidence: float = 0.4  # below this share of the vote, the result is too split -> unknown
     severity_signal_threshold: float = 0.75  # how close a sentence must be to an urgency example
     sentiment_signal_threshold: float = 0.75  # how close a sentence must be to a tone example
+    baseline_neighbours: int = 25  # how many similar tickets set the severity baseline
+    baseline_quantile: float = 0.25  # which point of their severities to take (0 = lowest, 0.5 = middle)
 
     @classmethod
     def from_file(cls, path: Path) -> Params:
@@ -120,17 +122,18 @@ def vote(neighbours: list[dict], label_field: str, power: float) -> tuple[str | 
     return winner, totals[winner] / sum(totals.values())
 
 
-def baseline_severity(neighbours: list[dict], category: str | None) -> str:
+def baseline_severity(neighbours: list[dict], category: str | None, quantile: float = 0.25) -> str:
     """How severe this kind of problem is when nothing special is going on.
 
     Past tickets for the same problem include some that were raised by urgency (a vulnerable
-    customer, business impact). Taking the lower quarter of their severities filters those out.
+    customer, business impact). Taking a low point of their severities (by default the lower
+    quarter) filters those out.
     """
     same_category = [n for n in neighbours if n.get("category") == category] or neighbours
     levels = sorted(SEVERITIES.index(n["severity"]) for n in same_category if n.get("severity") in SEVERITIES)
     if not levels:
         return "medium"
-    return SEVERITIES[levels[(len(levels) - 1) // 4]]
+    return SEVERITIES[levels[round(quantile * (len(levels) - 1))]]
 
 
 def decide(evidence: Evidence, signals: list[Signal], params: Params) -> dict:
@@ -162,7 +165,11 @@ def decide(evidence: Evidence, signals: list[Signal], params: Params) -> dict:
     }
 
     # Severity: baseline from similar tickets, then the strongest urgency signal moves it.
-    baseline = baseline_severity(neighbours, labels["category"]["best_guess"])
+    baseline = baseline_severity(
+        evidence.neighbours[: params.baseline_neighbours],
+        labels["category"]["best_guess"],
+        params.baseline_quantile,
+    )
     deltas = {s.name: s.severity_delta for s in signals if s.severity_delta is not None and s.name in fired}
     raising = {name: delta for name, delta in deltas.items() if delta > 0}
     if raising:

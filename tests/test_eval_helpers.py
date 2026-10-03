@@ -65,3 +65,4 @@ def test_eval_complaints_are_split_evenly_into_dev_and_test():
     assert not {i["id"] for i in items if i["split"] == "dev"} & {
         i["id"] for i in items if i["split"] == "test"
     }
+    assert all(i["base_severity"] in {"low", "medium", "high"} for i in items if i["group"] == "known")

@@ -27,6 +27,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import httpx
+import yaml
 
 from libs.common.embedding_client import EmbeddingClient
 from libs.common.retrieval_client import RetrievalClient
@@ -43,6 +44,8 @@ POWER_GRID = [1, 2, 4, 8, 16, 32]
 SIGNAL_GRID = [round(0.50 + 0.025 * step, 3) for step in range(19)]  # 0.50 ... 0.95
 SIMILARITY_GRID = [round(0.30 + 0.025 * step, 3) for step in range(27)]  # 0.30 ... 0.95
 CONFIDENCE_GRID = [0.0, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
+BASELINE_NEIGHBOUR_GRID = [5, 10, 15, 25]
+BASELINE_QUANTILE_GRID = [0.0, 0.25, 0.5]
 NEVER_UNKNOWN = {"min_similarity": 0.0, "min_confidence": 0.0}
 MAX_KNOWN_FLAGGED = 0.10  # at most 10% of normal complaints may be sent for human review
 
@@ -59,11 +62,19 @@ def load_items() -> list[dict]:
         "new_class": read_jsonl(GENERATED / "holdout_test_queries.jsonl"),
         "off_topic": read_jsonl(GENERATED / "out_of_scope.jsonl"),
     }
+    # The severity each scenario starts from, before urgency moves it (used for diagnostics only).
+    base_severity = {
+        scenario["id"]: scenario["base_severity"]
+        for path in sorted((ROOT / "data" / "scenarios").glob("*.yaml"))
+        for scenario in yaml.safe_load(path.read_text(encoding="utf-8"))
+    }
     items = []
     for group, rows in groups.items():
         for row in rows:
             number = int(row["id"].rsplit("-", 1)[1])
-            items.append({**row, "group": group, "split": "dev" if number % 2 else "test"})
+            item = {**row, "group": group, "split": "dev" if number % 2 else "test"}
+            item["base_severity"] = base_severity.get(row.get("scenario_id"))
+            items.append(item)
     return items
 
 
@@ -109,6 +120,16 @@ def evaluate(items: list[dict], signals, params: Params) -> dict[str, float]:
         "severity_within_one_level": share(
             [abs(level(r["severity"]["label"]) - level(i["severity"])) <= 1 for i, r in known]
         ),
+        # The two parts of severity, scored separately, to show which one needs work.
+        "severity_baseline_accuracy": share(
+            [r["severity"]["baseline"] == i["base_severity"] for i, r in known]
+        ),
+        "urgency_signal_accuracy": share(
+            [
+                (r["severity"]["reasons"][0] if r["severity"]["reasons"] else "none") == i["impact"]
+                for i, r in known
+            ]
+        ),
         "sentiment_accuracy": share([r["sentiment"]["label"] == i["sentiment"] for i, r in known]),
         "sentiment_macro_f1": macro_f1([(i["sentiment"], r["sentiment"]["label"]) for i, r in known]),
         "known_flagged_unknown": flagged("known"),
@@ -142,18 +163,37 @@ def calibrate(dev: list[dict], signals, start: Params) -> Params:
         f"product {scores['product_best_guess_accuracy']:.3f} (dev)"
     )
 
-    # 2. How close a sentence must be to an example before a signal counts.
-    for setting, metric in [
-        ("severity_signal_threshold", "severity_accuracy"),
-        ("sentiment_signal_threshold", "sentiment_accuracy"),
-    ]:
-        value = max(
-            SIGNAL_GRID, key=lambda v: evaluate(dev, signals, replace(params, **{setting: v}))[metric]
-        )
-        params = replace(params, **{setting: value})
-        print(f"  {setting}: {value} -> {metric} {evaluate(dev, signals, params)[metric]:.3f} (dev)")
+    # 2. Severity: how close a sentence must be to an urgency example, and how the baseline is
+    #    read from similar tickets (how many of them, and which point of their severities).
+    params = max(
+        (
+            replace(params, severity_signal_threshold=t, baseline_neighbours=n, baseline_quantile=q)
+            for t in SIGNAL_GRID
+            for n in BASELINE_NEIGHBOUR_GRID
+            for q in BASELINE_QUANTILE_GRID
+        ),
+        key=lambda candidate: evaluate(dev, signals, candidate)["severity_accuracy"],
+    )
+    scores = evaluate(dev, signals, params)
+    print(
+        f"  severity: signal threshold {params.severity_signal_threshold}, baseline from "
+        f"{params.baseline_neighbours} neighbours at quantile {params.baseline_quantile} "
+        f"-> severity {scores['severity_accuracy']:.3f} "
+        f"(baseline {scores['severity_baseline_accuracy']:.3f}, "
+        f"urgency signal {scores['urgency_signal_accuracy']:.3f}) (dev)"
+    )
 
-    # 3. When to say "unknown". Flagging a normal complaint wastes a reviewer's time, so we allow
+    # 3. Sentiment: how close a sentence must be to a tone example.
+    params = max(
+        (replace(params, sentiment_signal_threshold=t) for t in SIGNAL_GRID),
+        key=lambda candidate: evaluate(dev, signals, candidate)["sentiment_accuracy"],
+    )
+    print(
+        f"  sentiment: signal threshold {params.sentiment_signal_threshold} "
+        f"-> sentiment {evaluate(dev, signals, params)['sentiment_accuracy']:.3f} (dev)"
+    )
+
+    # 4. When to say "unknown". Flagging a normal complaint wastes a reviewer's time, so we allow
     #    at most MAX_KNOWN_FLAGGED of known complaints to be flagged, and within that limit catch
     #    as many new-class and off-topic complaints as possible.
     def caught(candidate: Params) -> tuple[bool, float]:
@@ -197,6 +237,8 @@ def to_markdown(scores: dict[str, float], count: int, params: Params, model: str
         ("Product accuracy", "product_accuracy", ""),
         ("Severity accuracy", "severity_accuracy", "exact level"),
         ("Severity within one level", "severity_within_one_level", ""),
+        ("  part 1: baseline severity", "severity_baseline_accuracy", "from similar tickets"),
+        ("  part 2: urgency signal", "urgency_signal_accuracy", "which urgency signal, or none"),
         ("Sentiment accuracy", "sentiment_accuracy", ""),
         ("Sentiment macro-F1", "sentiment_macro_f1", ""),
         ("Known complaints flagged unknown", "known_flagged_unknown", "lower is better"),

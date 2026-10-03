@@ -100,7 +100,16 @@ def test_vote_reports_the_winning_share_and_ignores_missing_labels():
 def test_baseline_severity_ignores_tickets_that_were_raised_by_urgency():
     neighbours = [neighbour(0.9, severity=level) for level in ["medium"] * 5 + ["high"] * 6 + ["critical"]]
     assert baseline_severity(neighbours, "connectivity") == "medium"
+    assert baseline_severity(neighbours, "connectivity", quantile=0.5) == "high"  # the middle is raised
+    assert baseline_severity(neighbours, "connectivity", quantile=0.0) == "medium"
     assert baseline_severity([], None) == "medium"
+
+
+def test_baseline_can_use_fewer_neighbours_than_the_vote():
+    neighbours = [neighbour(0.9, severity="low")] * 2 + [neighbour(0.8, severity="high")] * 8
+    few = decide(evidence(neighbours), SIGNALS, replace(PARAMS, neighbours=10, baseline_neighbours=2))
+    many = decide(evidence(neighbours), SIGNALS, replace(PARAMS, neighbours=10, baseline_neighbours=10))
+    assert few["severity"]["baseline"] == "low" and many["severity"]["baseline"] == "high"
 
 
 # ---- the decision rules -----------------------------------------------------------------------

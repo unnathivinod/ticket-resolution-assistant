@@ -1,0 +1,28 @@
+{
+  "complaints": 215,
+  "embedding_model": "BAAI/bge-small-en-v1.5",
+  "params": {
+    "neighbours": 25,
+    "similarity_power": 4,
+    "min_similarity": 0.75,
+    "min_confidence": 0.3,
+    "severity_signal_threshold": 0.7,
+    "sentiment_signal_threshold": 0.675,
+    "baseline_neighbours": 15,
+    "baseline_quantile": 0.25
+  },
+  "category_accuracy": 0.7111111111111111,
+  "category_best_guess_accuracy": 0.7555555555555555,
+  "category_macro_f1": 0.7301989180604322,
+  "product_accuracy": 0.7833333333333333,
+  "product_best_guess_accuracy": 0.8222222222222222,
+  "severity_accuracy": 0.5944444444444444,
+  "severity_within_one_level": 0.9333333333333333,
+  "severity_baseline_accuracy": 0.7055555555555556,
+  "urgency_signal_accuracy": 0.6777777777777778,
+  "sentiment_accuracy": 0.8277777777777777,
+  "sentiment_macro_f1": 0.8507280865771432,
+  "known_flagged_unknown": 0.07777777777777778,
+  "new_class_flagged_unknown": 0.05,
+  "off_topic_flagged_unknown": 0.8666666666666667
+}

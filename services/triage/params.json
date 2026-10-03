@@ -1,10 +1,13 @@
 {
-  "_comment": "Tuned settings for the triage service. Written by: python evals/eval_triage.py --calibrate (fitted on the dev half of the test complaints, reported on the other half). These starting values are untuned guesses.",
-  "neighbours": 15,
+  "_comment": "Tuned settings for the triage service. Written by: python evals/eval_triage.py --calibrate (fitted on the dev half of the test complaints, reported on the other half).",
+  "neighbours": 25,
   "similarity_power": 4,
-  "min_similarity": 0.6,
-  "min_confidence": 0.4,
-  "severity_signal_threshold": 0.75,
-  "sentiment_signal_threshold": 0.75,
-  "calibrated": false
+  "min_similarity": 0.75,
+  "min_confidence": 0.3,
+  "severity_signal_threshold": 0.7,
+  "sentiment_signal_threshold": 0.675,
+  "baseline_neighbours": 15,
+  "baseline_quantile": 0.25,
+  "calibrated": true,
+  "embedding_model": "BAAI/bge-small-en-v1.5"
 }

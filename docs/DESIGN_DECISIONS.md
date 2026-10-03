@@ -76,6 +76,57 @@ What this showed:
   2. Asking the LLM to restate the complaint in plain technical language before searching.
   3. A reranker trained for sentence similarity instead of question answering.
 
+## Triage: what the evals showed
+
+Triage labels a complaint by letting the most similar past tickets vote (category, product), and by
+matching sentences against a short list of example sentences for urgency and tone (severity, sentiment).
+Its settings are tuned on one half of the eval complaints and reported on the other half.
+
+First measurement, on 215 test-half complaints, embedding model `BAAI/bge-small-en-v1.5`:
+
+| Metric | Value |
+|---|---|
+| Category accuracy ('unknown' counts as wrong) | 0.711 |
+| Category accuracy, best guess | 0.756 |
+| Product accuracy | 0.783 |
+| Severity accuracy, exact level | 0.489 |
+| Severity within one level | 0.894 |
+| Sentiment accuracy | 0.828 |
+| Known complaints flagged unknown | 0.078 |
+| Off-topic questions flagged unknown | 0.867 |
+| New-class complaints flagged unknown | 0.050 |
+
+Similarity of the closest past ticket, per group:
+
+| Group | 25% | middle | 75% |
+|---|---|---|---|
+| Known classes | 0.798 | 0.827 | 0.853 |
+| New classes (eSIM, fraud) | 0.792 | 0.831 | 0.846 |
+| Off-topic questions | 0.559 | 0.624 | 0.702 |
+
+What this showed:
+
+1. **Voting over 25 neighbours beats trusting the single closest ticket** for category
+   (0.756 vs 0.656 for the top search result alone).
+2. **Sentiment from example sentences works well** (0.83) even though the test complaints use
+   tone phrases the examples do not contain.
+3. **The 'unknown' rule catches off-topic questions (87%) but not new problem types (5%).**
+   A complaint about a new class is still a telecom complaint, so its closest past ticket is just as
+   similar as for a known class (middle value 0.83 in both groups). A similarity threshold cannot
+   separate them. This is an honest limit of the approach, not a tuning problem.
+4. **Exact severity is the weakest label (0.49)**, although it is within one level 89% of the time.
+   Severity depends on two things being right at once: the baseline for the problem type and the
+   urgency signal. The eval now scores the two parts separately so the weaker one can be fixed.
+
+Decisions taken:
+
+| Decision | Chosen | Why |
+|---|---|---|
+| Category and product | Similarity-weighted vote of the nearest past tickets | No training step, new classes work as soon as labelled tickets exist, a few milliseconds per request |
+| Severity and sentiment | Example sentences per signal, matched by meaning, kept in a YAML file | Catches new wordings, every decision comes with a reason, support staff can edit the examples |
+| Thresholds | Fitted by `eval_triage.py --calibrate` on a dev half, reported on a test half | Avoids hand-picked numbers and avoids grading on the data used for tuning |
+| Detecting new classes | Not by a per-request threshold. Use agent corrections plus a clustering job over recent tickets | Measurement 3 above: a threshold cannot see them |
+
 ## Other decisions
 
 | Decision | Chosen | Alternative | Why |
