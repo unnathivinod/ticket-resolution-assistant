@@ -1,0 +1,47 @@
+# The ticket classes the system knows on day one.
+# These get loaded into the "taxonomy" table. New classes can be added later
+# without changing any code (see data/scenarios/holdout_new_classes.yaml).
+
+category:
+  - name: connectivity_intermittent
+    description: Service works but keeps dropping or disconnecting.
+  - name: connectivity_outage
+    description: Service is completely down, no connection at all.
+  - name: slow_speed
+    description: Connection works but is much slower than expected.
+  - name: wifi_coverage
+    description: Wi-Fi signal is weak or missing in parts of the home.
+  - name: device_hardware
+    description: Faulty equipment such as a router, SIM card or set-top box.
+  - name: activation_provisioning
+    description: A new or moved service has not been switched on.
+  - name: voice_and_sms
+    description: Problems with calls or text messages.
+  - name: number_porting
+    description: Moving a phone number from another provider.
+  - name: roaming
+    description: Using the mobile service abroad.
+  - name: billing_dispute
+    description: The customer disagrees with a charge on the bill.
+  - name: payment_issue
+    description: A payment failed or was not recorded.
+  - name: plan_change
+    description: An upgrade or plan change has not taken effect.
+  - name: tv_service
+    description: TV channels, picture quality or TV error codes.
+  - name: account_access
+    description: Cannot log in to the app or online account.
+
+product:
+  - name: broadband
+    description: Copper or cable home broadband.
+  - name: fibre
+    description: Full-fibre home broadband.
+  - name: mobile
+    description: Mobile voice, text and data.
+  - name: tv
+    description: TV service and set-top box.
+  - name: landline
+    description: Home phone line.
+  - name: self_care_app
+    description: The customer app and online account.

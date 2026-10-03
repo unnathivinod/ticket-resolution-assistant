@@ -1,0 +1,48 @@
+{
+  "seed": 42,
+  "counts": {
+    "tickets": 1440,
+    "test_queries": 360,
+    "kb_articles": 41,
+    "out_of_scope": 30,
+    "holdout_tickets": 160,
+    "holdout_test_queries": 40,
+    "holdout_kb_articles": 4
+  },
+  "tickets_by_category": {
+    "account_access": 40,
+    "activation_provisioning": 120,
+    "billing_dispute": 240,
+    "connectivity_intermittent": 120,
+    "connectivity_outage": 160,
+    "device_hardware": 80,
+    "number_porting": 40,
+    "payment_issue": 80,
+    "plan_change": 80,
+    "roaming": 40,
+    "slow_speed": 120,
+    "tv_service": 120,
+    "voice_and_sms": 160,
+    "wifi_coverage": 40
+  },
+  "tickets_by_product": {
+    "broadband": 400,
+    "fibre": 200,
+    "landline": 80,
+    "mobile": 600,
+    "self_care_app": 40,
+    "tv": 120
+  },
+  "tickets_by_severity": {
+    "low": 394,
+    "medium": 483,
+    "high": 420,
+    "critical": 143
+  },
+  "tickets_by_sentiment": {
+    "negative": 761,
+    "neutral": 543,
+    "positive": 136
+  },
+  "tickets_with_pii": 237
+}

@@ -1,0 +1,296 @@
+# Issue scenarios for home broadband and fibre.
+# Each scenario is one real-world problem with a known cause and fix.
+#   symptoms      -> customer wordings used for the tickets we INDEX
+#   test_symptoms -> different wordings kept ONLY for test queries (never indexed)
+#   tried         -> things customers often did already ("I have already ...")
+#   resolution    -> the steps a support agent follows
+
+- id: S01
+  category: connectivity_intermittent
+  product: broadband
+  title: Evening broadband drops caused by peak-hour congestion
+  base_severity: medium
+  cause: The local exchange is congested between about 7pm and 10pm, so the line loses sync or slows to a crawl at peak time.
+  symptoms:
+    - My broadband drops every evening around 8pm.
+    - The internet cuts out most nights between 7 and 10.
+    - Every night at peak time my connection disconnects for a few minutes.
+    - Broadband is fine in the morning but keeps dropping after dinner time.
+    - My connection dies around the same time every evening.
+    - Internet goes off and on repeatedly in the evenings only.
+  test_symptoms:
+    - Once it gets dark the net becomes useless and keeps kicking us off.
+    - Daytime is perfect, but when everybody in the street gets home we lose the link again and again.
+    - Like clockwork, at night the router loses its connection and comes back after a while.
+  tried:
+    - restarted the router
+    - switched the router off and on twice
+    - moved the router closer to the main socket
+  resolution:
+    - Run a remote line test and compare sync speed and error counts between daytime and 7pm to 10pm.
+    - Check the exchange utilisation report for the customer's cabinet to confirm peak-hour congestion.
+    - Change the router Wi-Fi channel to a less crowded one to rule out local interference.
+    - Move the customer to a less loaded port or apply the congestion-relief profile.
+    - If the cabinet is over capacity, raise a capacity ticket with the network team and give the customer the expected upgrade date.
+  escalate: Escalate to the network capacity team if utilisation is above 90 percent for three evenings in a row.
+
+- id: S02
+  category: connectivity_intermittent
+  product: broadband
+  title: Random broadband disconnects caused by faulty line filter or internal wiring
+  base_severity: medium
+  cause: A faulty microfilter, a loose cable or old extension wiring adds noise to the line, so the router loses sync at random times, often when the landline rings.
+  symptoms:
+    - My broadband disconnects at random times during the day.
+    - The internet drops whenever the house phone rings.
+    - Connection keeps cutting out for a minute and then comes back, no pattern to it.
+    - The router loses internet several times a day at random.
+    - Broadband keeps dropping when it rains or when someone uses the landline.
+    - My connection is unstable and disconnects ten times a day.
+  test_symptoms:
+    - We get kicked offline out of nowhere, morning or afternoon, there is no rhyme or reason.
+    - As soon as somebody picks up the home telephone the web stops working.
+    - The link is flaky all day long and the DSL light keeps blinking.
+  tried:
+    - restarted the router
+    - changed the ethernet cable
+    - reset the router to factory settings
+  resolution:
+    - Run a line test and check for a high error count or frequent re-syncs.
+    - Ask the customer to replace the microfilter on every socket that has a phone plugged in.
+    - Ask the customer to plug the router into the master socket test port to bypass internal wiring.
+    - If the line is stable on the test port, advise removing or replacing the extension wiring.
+    - If re-syncs continue on the test port, book an engineer visit for a line fault.
+  escalate: Book an engineer if more than five re-syncs per day continue on the master socket test port.
+
+- id: S03
+  category: connectivity_outage
+  product: broadband
+  title: Total broadband outage with DSL light off due to line fault
+  base_severity: high
+  cause: A physical fault on the copper line or at the cabinet means the router cannot sync at all.
+  symptoms:
+    - My broadband is completely down and the DSL light is off.
+    - No internet at all since this morning, the router shows a red light.
+    - The internet has stopped working entirely.
+    - Broadband is dead, nothing connects and the internet light is red.
+    - We have had no internet connection for two days.
+    - The router has power but there is no broadband signal at all.
+  test_symptoms:
+    - Nothing loads on any device and the box just shows a solid red lamp.
+    - We are totally offline, the line seems to be dead.
+    - The hub is switched on but it cannot find any service whatsoever.
+  tried:
+    - restarted the router
+    - checked all the cables
+    - tried a different phone socket
+  resolution:
+    - Check the outage map for a known fault in the customer's area.
+    - Run a remote line test to look for an open circuit or a loss of sync.
+    - Ask the customer to connect the router to the master socket test port with a new cable.
+    - If there is still no sync, raise a line fault and book the earliest engineer slot.
+    - Offer a temporary mobile data add-on while the fault is open.
+  escalate: Escalate as a priority fault if the customer is vulnerable or the outage exceeds 48 hours.
+
+- id: S04
+  category: connectivity_outage
+  product: fibre
+  title: Fibre outage with red LOS light on the ONT
+  base_severity: high
+  cause: The optical signal is lost because of a fibre cut, a bent or unplugged fibre patch lead, or an area outage.
+  symptoms:
+    - My fibre is down and there is a red LOS light on the white box.
+    - No internet, the fibre box is showing a red light.
+    - Fibre connection stopped working and the LOS light is blinking red.
+    - The fibre internet is completely off since last night.
+    - The ONT has a red light and nothing connects.
+    - Our fibre broadband has gone down completely.
+  test_symptoms:
+    - The little optical unit on the wall is flashing a red warning lamp and we are offline.
+    - Full fibre has gone dead after builders were working outside.
+    - The modem says loss of signal and no page will open.
+  tried:
+    - restarted the router
+    - unplugged the fibre box and plugged it back in
+    - checked that the green cable is pushed in
+  resolution:
+    - Check the outage map for a fibre cut or planned work in the area.
+    - Ask the customer to check that the fibre patch lead is firmly clicked in and not sharply bent.
+    - Power cycle the ONT first and then the router, waiting two minutes between them.
+    - Run a remote optical power test on the ONT.
+    - If the LOS light stays red, raise a fibre fault and book an engineer.
+  escalate: Escalate to field operations if several customers on the same splitter report a red LOS light.
+
+- id: S05
+  category: slow_speed
+  product: broadband
+  title: Broadband speed far below plan all day due to line profile or old router
+  base_severity: medium
+  cause: The line is stuck on a low-speed profile after earlier instability, or an old router cannot deliver the plan speed.
+  symptoms:
+    - My broadband is very slow all day, far below what I pay for.
+    - I am paying for 80 Mbps but only getting 10.
+    - Internet speed has been terrible for weeks at every time of day.
+    - Downloads are extremely slow and videos keep buffering all the time.
+    - Speed test shows a fraction of my plan speed.
+    - The internet is painfully slow on every device, morning and night.
+  test_symptoms:
+    - Everything crawls from sunrise to bedtime, even on a cable straight into the hub.
+    - The package promised fast speeds but web pages take ages to open at any hour.
+    - Streaming is stuck on the lowest quality constantly, wired or wireless.
+  tried:
+    - restarted the router
+    - ran a speed test on a wired connection
+    - disconnected all other devices
+  resolution:
+    - Ask for a wired speed test result and compare it with the line sync speed.
+    - Check whether the line is on a banded or capped profile after past instability.
+    - Reset the line profile so the speed can retrain over the next 48 hours.
+    - Check the router model and replace it if it does not support the plan speed.
+    - If sync speed is below the guaranteed minimum, raise a speed fault.
+  escalate: Raise a speed fault if the wired speed stays below the guaranteed minimum after the profile reset.
+
+- id: S06
+  category: slow_speed
+  product: fibre
+  title: Fibre slow on Wi-Fi only because devices use the 2.4 GHz band
+  base_severity: low
+  cause: The connection is fast on a cable, but devices are connecting on the crowded 2.4 GHz band or are too old for high Wi-Fi speeds.
+  symptoms:
+    - My fibre is fast on the cable but slow on Wi-Fi.
+    - Wi-Fi speed is much lower than my fibre plan speed.
+    - On my phone I only get 30 Mbps even though I have 500 Mbps fibre.
+    - The fibre is fine when wired but wireless is really slow.
+    - Speed over Wi-Fi is a small part of what I get over ethernet.
+    - Wireless speeds are poor on my new fibre connection.
+  test_symptoms:
+    - Plugged in with a lead it flies, but over the air my laptop is sluggish.
+    - My tablet and mobile never get anywhere near the gigabit I signed up for.
+    - Without a wire the connection is quick only when I sit beside the hub.
+  tried:
+    - ran a speed test next to the router
+    - restarted the router
+    - forgot the Wi-Fi network and joined again
+  resolution:
+    - Confirm that the wired speed test matches the plan, so the fibre line itself is healthy.
+    - Ask which Wi-Fi band the device is on and move it to the 5 GHz network.
+    - Split the 2.4 GHz and 5 GHz networks into separate names so devices stay on 5 GHz.
+    - Change the 5 GHz channel width to 80 MHz and pick a clear channel.
+    - Explain that older devices cannot reach full plan speed over Wi-Fi.
+  escalate: No escalation needed unless the wired speed is also below the plan speed.
+
+- id: S07
+  category: wifi_coverage
+  product: broadband
+  title: Weak Wi-Fi signal in rooms far from the router
+  base_severity: low
+  cause: Thick walls and distance weaken the signal, and the router is badly placed for the size of the home.
+  symptoms:
+    - Wi-Fi signal is very weak upstairs.
+    - I get no Wi-Fi in the bedroom at the back of the house.
+    - The wireless signal does not reach the far rooms.
+    - Wi-Fi works near the router but disappears in the kitchen.
+    - There are dead spots in my house where Wi-Fi does not work.
+    - The signal drops to one bar when I go to the other end of the flat.
+  test_symptoms:
+    - The coverage does not get through to the loft room at all.
+    - In the garden office my laptop cannot even see our network.
+    - Wireless is strong in the lounge but fades to nothing down the hallway.
+  tried:
+    - restarted the router
+    - moved the router to a higher shelf
+    - bought a cheap Wi-Fi extender
+  resolution:
+    - Ask where the router is placed and move it to a central, open, raised position.
+    - Keep the router away from microwaves, cordless phones and thick walls.
+    - Use the 2.4 GHz band for far rooms because it travels further.
+    - Offer the mesh Wi-Fi add-on or a wired access point for large homes.
+    - Confirm coverage with the customer using the app signal checker.
+  escalate: No escalation needed. Offer a paid home Wi-Fi survey if mesh units do not help.
+
+- id: S08
+  category: device_hardware
+  product: broadband
+  title: Router keeps rebooting by itself due to faulty hardware or power supply
+  base_severity: medium
+  cause: A failing power adapter or overheating makes the router restart on its own.
+  symptoms:
+    - My router keeps restarting by itself.
+    - The router reboots every few hours on its own.
+    - The router is very hot and switches itself off and on.
+    - All the lights on the router go off and it starts up again several times a day.
+    - My router keeps crashing and restarting.
+    - The modem power light keeps flickering and it reboots.
+  test_symptoms:
+    - The hub turns itself off and comes back to life without anyone touching it.
+    - Our box feels burning to the touch and resets again and again.
+    - Every so often the whole unit goes dark, then boots up from scratch.
+  tried:
+    - moved the router to a cooler place
+    - plugged the router into a different power socket
+    - reset the router to factory settings
+  resolution:
+    - Check the router uptime and reboot log remotely.
+    - Ask the customer to use a different wall socket without an extension lead.
+    - Make sure the router is in an open place and its vents are not covered.
+    - Update the router firmware to the latest version.
+    - If reboots continue, send a replacement router and power adapter.
+  escalate: Send a replacement router if there are more than three unplanned reboots in 24 hours after the firmware update.
+
+- id: S09
+  category: activation_provisioning
+  product: fibre
+  title: New fibre installed but service not activated
+  base_severity: medium
+  cause: The engineer completed the installation but the activation order is stuck in provisioning.
+  symptoms:
+    - The engineer installed my fibre but it is still not working.
+    - My new fibre connection has not been activated yet.
+    - Fibre was installed three days ago and there is still no internet.
+    - The installation is finished but the service is not live.
+    - I am still waiting for my new fibre to be switched on.
+    - New fibre line, the box is fitted but nothing works.
+  test_symptoms:
+    - The technician fitted everything last week yet we remain without service.
+    - Our brand new full fibre has never come online since it was set up.
+    - The order says complete but the connection was never turned on.
+  tried:
+    - restarted the router
+    - checked the order status in the app
+    - waited the 24 hours the engineer mentioned
+  resolution:
+    - Check the order status and find the provisioning step that is stuck.
+    - Confirm that the ONT serial number on the order matches the installed device.
+    - Re-push the activation request from the provisioning system.
+    - Ask the customer to power cycle the ONT and router once activation shows complete.
+    - Apply a credit for the days without service after the install date.
+  escalate: Escalate to the provisioning team if activation fails twice.
+
+- id: S10
+  category: activation_provisioning
+  product: broadband
+  title: Broadband not transferred after house move
+  base_severity: medium
+  cause: The home move order was not completed, so the service is still tied to the old address.
+  symptoms:
+    - I moved house and my broadband has not been moved to the new address.
+    - My internet was supposed to be transferred on moving day but it is not working.
+    - We have moved home and there is no broadband at the new place.
+    - The house move order has not been done and I have no service.
+    - Broadband still has not been set up at my new address.
+    - I booked a home move two weeks ago and there is still nothing.
+  test_symptoms:
+    - We relocated last week and the connection never followed us.
+    - Changed flats and the line at the new place is still not live.
+    - Our service is stuck at the previous property after we shifted.
+  tried:
+    - plugged the router in at the new address
+    - checked the order status in the app
+    - called the home move team once
+  resolution:
+    - Find the home move order and check its status and target date.
+    - Confirm that the new address and line details on the order are correct.
+    - If the order is stuck, re-submit it and request the earliest activation date.
+    - Book an engineer if the new property needs a line installed.
+    - Offer a mobile data add-on and a credit for the days without service.
+  escalate: Escalate to the home move team if no activation date is available within five working days.

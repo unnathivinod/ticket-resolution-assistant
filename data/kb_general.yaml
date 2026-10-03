@@ -1,0 +1,63 @@
+# General knowledge-base articles that are not tied to one scenario.
+# They act as realistic "background" documents in the search index.
+
+- id: KB-G01
+  title: How to power cycle a router and fibre ONT
+  product: broadband
+  body: |
+    A power cycle clears temporary faults and makes the equipment reconnect to the network.
+
+    Steps
+    1. Switch off the router and the fibre ONT (if there is one) at the wall.
+    2. Wait two full minutes.
+    3. Switch on the ONT first and wait until its lights are steady.
+    4. Switch on the router and wait up to five minutes for the internet light.
+
+    Do not ask the customer to repeat this if they have already done it in the last hour.
+
+- id: KB-G02
+  title: How to run a wired speed test
+  product: broadband
+  body: |
+    A wired test shows the real speed of the line without Wi-Fi getting in the way.
+
+    Steps
+    1. Connect a laptop to the router with an ethernet cable.
+    2. Switch off Wi-Fi on the laptop and close other apps.
+    3. Pause downloads and streaming on other devices.
+    4. Run the speed test three times at different times of day and note the results.
+
+    Compare the results with the guaranteed minimum speed on the customer's contract.
+
+- id: KB-G03
+  title: What the router lights mean
+  product: broadband
+  body: |
+    Power light: green means on, off means no power.
+    DSL or Link light: steady green means the line is in sync, flashing means it is trying to sync, off means no line signal.
+    Internet light: green means connected, red means the login to the network failed.
+    LOS light on a fibre ONT: off is normal, red means the optical signal is lost.
+    Wi-Fi light: on means wireless is enabled.
+
+- id: KB-G04
+  title: How to read your bill
+  product: self_care_app
+  body: |
+    The bill has four parts: the monthly plan charge, one-off charges such as installation or equipment,
+    usage charges outside the plan such as roaming or premium services, and discounts or credits.
+
+    A first bill is often higher because it covers part of a month plus a full month in advance.
+    Discounts show their end date next to the discount line.
+
+- id: KB-G05
+  title: Priority handling for vulnerable customers
+  product: landline
+  body: |
+    A customer is treated as vulnerable if they depend on the service for health or safety,
+    for example a medical alarm, a carer contact line, or living alone with limited mobility.
+
+    Steps
+    1. Add the priority flag to the account.
+    2. Raise any fault as a priority fault with the shortest repair target.
+    3. Offer a backup such as a mobile data add-on or call divert.
+    4. Agree a call-back time and keep the customer updated.

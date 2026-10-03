@@ -1,0 +1,407 @@
+# Issue scenarios for mobile.
+
+- id: S11
+  category: connectivity_outage
+  product: mobile
+  title: No mobile signal due to mast outage in the area
+  base_severity: high
+  cause: A local mast is down or under maintenance, so phones in the area show no service.
+  symptoms:
+    - My phone has no signal at all since yesterday.
+    - It says No Service on my mobile.
+    - I have zero bars at home where I normally have full signal.
+    - Mobile network is completely gone in my area.
+    - I cannot make calls or use data, there is no network.
+    - My phone shows emergency calls only.
+  test_symptoms:
+    - The handset cannot find the network anywhere in our village.
+    - Reception has vanished for everyone on our street.
+    - My device just says searching and never connects.
+  tried:
+    - restarted the phone
+    - turned airplane mode on and off
+    - put the SIM in another phone
+  resolution:
+    - Check the network status map for a mast outage or planned work at the customer's postcode.
+    - Confirm that the SIM is active and not barred on the account.
+    - Ask the customer to try manual network selection and choose the home network.
+    - Enable Wi-Fi calling so the customer can call and text over Wi-Fi during the outage.
+    - Give the expected fix time and subscribe the customer to outage updates.
+  escalate: Escalate to network operations if no outage is listed but several customers in the same area report no service.
+
+- id: S12
+  category: slow_speed
+  product: mobile
+  title: Mobile data slow after reaching the fair-use limit
+  base_severity: low
+  cause: The customer used the high-speed data allowance, so speed is reduced until the next billing cycle.
+  symptoms:
+    - My mobile data has become very slow this week.
+    - Mobile internet is crawling even with full signal.
+    - Data speed on my phone dropped suddenly.
+    - My 5G is slower than 3G right now.
+    - Videos will not load on mobile data.
+    - Mobile data is too slow to use.
+  test_symptoms:
+    - Browsing on the go has become unbearable although I have full bars.
+    - Since a few days the cellular internet barely moves.
+    - Apps time out when I am away from home wireless.
+  tried:
+    - restarted the phone
+    - turned mobile data off and on
+    - reset the network settings
+  resolution:
+    - Check the data usage for the current billing cycle against the plan allowance.
+    - If the fair-use limit is reached, explain that speed is reduced until the cycle resets on the bill date.
+    - Offer a data add-on to restore full speed immediately.
+    - Suggest a larger plan if the customer reaches the limit every month.
+    - If usage is below the limit, check for a network issue at the customer's location.
+  escalate: Escalate to the network team if usage is below the limit and speed tests stay under 1 Mbps.
+
+- id: S13
+  category: connectivity_intermittent
+  product: mobile
+  title: Mobile data not working because of wrong APN settings
+  base_severity: medium
+  cause: After a phone change or software update the APN settings are missing or wrong, so data fails even with signal.
+  symptoms:
+    - Mobile data is not working even though I have signal.
+    - I can call and text but the internet does not work on my phone.
+    - Mobile data stopped working after I updated my phone.
+    - No internet on mobile data since I changed my phone.
+    - Data shows as connected but nothing loads.
+    - My mobile internet keeps saying no connection.
+  test_symptoms:
+    - Voice is fine yet nothing opens unless I am on wireless at home.
+    - After the software upgrade the cellular internet refuses to connect.
+    - I swapped handsets and now there is no web access outside the house.
+  tried:
+    - restarted the phone
+    - turned mobile data off and on
+    - turned airplane mode on and off
+  resolution:
+    - Confirm that mobile data is enabled and that the plan has data allowance left.
+    - Send the APN settings by text message and ask the customer to save and select them.
+    - If needed, guide the customer to enter the APN manually in the mobile network settings.
+    - Ask the customer to restart the phone after saving the APN.
+    - Test by opening a web page with Wi-Fi switched off.
+  escalate: Escalate to device support if data still fails with the correct APN and the SIM works in another phone.
+
+- id: S14
+  category: voice_and_sms
+  product: mobile
+  title: Calls dropping or bad call quality because VoLTE is disabled
+  base_severity: medium
+  cause: 4G calling (VoLTE) is switched off or not provisioned, so calls fall back to a weak 2G or 3G signal and drop.
+  symptoms:
+    - My calls keep dropping after a few seconds.
+    - Calls cut off in the middle of a conversation.
+    - People cannot hear me properly on calls.
+    - Call quality is very bad and the voice keeps breaking.
+    - Every call disconnects after about a minute.
+    - My voice calls keep failing.
+  test_symptoms:
+    - Conversations get chopped off again and again.
+    - The other person says I sound like a robot and then the line goes.
+    - Whenever I ring someone it hangs up by itself shortly after.
+  tried:
+    - restarted the phone
+    - reset the network settings
+    - took the SIM out and put it back
+  resolution:
+    - Check whether VoLTE is provisioned on the customer's account and enable it if it is missing.
+    - Ask the customer to switch on 4G calling in the phone's mobile network settings.
+    - Enable Wi-Fi calling for use indoors where signal is weak.
+    - Ask the customer to update the phone software and carrier settings.
+    - Check the coverage map at the customer's address for known weak areas.
+  escalate: Escalate to the network team if calls still drop with VoLTE on and good signal.
+
+- id: S15
+  category: activation_provisioning
+  product: mobile
+  title: New SIM not activated
+  base_severity: medium
+  cause: The activation request for the new SIM did not complete, so the SIM is not provisioned on the network.
+  symptoms:
+    - My new SIM card is not working.
+    - I put in the new SIM and it says SIM not provisioned.
+    - The new SIM has not been activated yet.
+    - I got my SIM two days ago and it still has no service.
+    - New connection, SIM inserted but no network.
+    - My new SIM is still inactive.
+  test_symptoms:
+    - The card that arrived in the post does nothing in my handset.
+    - Just joined your network and my line is still not live.
+    - The starter pack chip shows an error saying it is not registered.
+  tried:
+    - restarted the phone
+    - put the SIM in another phone
+    - followed the activation steps in the welcome letter
+  resolution:
+    - Check the SIM serial number against the order to confirm the right SIM was sent.
+    - Check the activation status and re-submit the activation if it failed.
+    - Ask the customer to restart the phone after about 15 minutes.
+    - Make a test call and a data test with the customer on the line.
+    - If the SIM is faulty, order a replacement SIM free of charge.
+  escalate: Escalate to provisioning if activation fails twice for the same SIM.
+
+- id: S16
+  category: number_porting
+  product: mobile
+  title: Number transfer from another network delayed
+  base_severity: medium
+  cause: The porting request was rejected or is on hold because the porting code or account details did not match.
+  symptoms:
+    - My number has not been transferred from my old network.
+    - The number port was supposed to happen yesterday but it has not.
+    - I gave my porting code a week ago and my old number is still not moved.
+    - My number transfer is delayed.
+    - Still waiting for my existing number to be moved to this SIM.
+    - The port in request seems to be stuck.
+  test_symptoms:
+    - I wanted to keep my old digits but the new card still has a temporary one.
+    - Switching providers has taken ages and my contacts cannot reach me on the usual number.
+    - The move of my line from the previous operator never went through.
+  tried:
+    - submitted the porting code again in the app
+    - called my old network to check
+    - restarted the phone
+  resolution:
+    - Check the porting request status and the reason for any rejection.
+    - Verify the porting code, the mobile number and the account holder name with the customer.
+    - If the code has expired, ask the customer to get a new code from the old network.
+    - Re-submit the port request and confirm the new port date.
+    - Tell the customer to restart the phone on the port date and test calls.
+  escalate: Escalate to the porting desk if the request is rejected twice or the delay is more than two working days.
+
+- id: S17
+  category: roaming
+  product: mobile
+  title: Roaming not working abroad
+  base_severity: high
+  cause: Roaming is not enabled on the account or the phone has not registered on a partner network.
+  symptoms:
+    - My phone is not working abroad.
+    - I am travelling and have no service on roaming.
+    - Roaming is not working, I cannot make calls or use data overseas.
+    - I landed in another country and my SIM shows no network.
+    - Data roaming does not work on my trip.
+    - International roaming is not connecting.
+  test_symptoms:
+    - I am on holiday in Spain and my handset is useless here.
+    - Since stepping off the plane the mobile cannot find any operator.
+    - On a business trip overseas and my line will not connect at all.
+  tried:
+    - restarted the phone
+    - turned data roaming on in settings
+    - turned airplane mode on and off
+  resolution:
+    - Check that roaming is enabled on the account and enable it if not.
+    - Check that the destination country is covered by the customer's plan.
+    - Ask the customer to turn on data roaming and select a partner network manually.
+    - Ask the customer to restart the phone so it registers on the partner network.
+    - Offer a roaming pass and explain the charges.
+  escalate: Escalate to the roaming team if the phone cannot register on any partner network after manual selection.
+
+- id: S18
+  category: billing_dispute
+  product: mobile
+  title: Unexpected roaming charges because roaming pass was not applied
+  base_severity: medium
+  cause: The roaming pass was not active or the customer used data outside the pass coverage, so pay-as-you-go roaming rates were charged.
+  symptoms:
+    - I have been charged a huge amount for roaming.
+    - My bill has roaming charges even though I bought a roaming pass.
+    - I got a very high bill after my trip abroad.
+    - I was charged for data used abroad that should have been included.
+    - There are unexpected international roaming charges on my bill.
+    - My bill is triple the normal amount after travelling.
+  test_symptoms:
+    - Came back from holiday to a shocking invoice for using my phone overseas.
+    - I paid for the travel bundle and you still billed me per megabyte.
+    - The statement after my trip has hundreds in fees I never agreed to.
+  tried:
+    - checked the bill in the app
+    - checked that the roaming pass was shown as active
+    - contacted chat support once
+  resolution:
+    - Review the itemised bill and identify the roaming charges, dates and countries.
+    - Check whether a roaming pass was active on those dates and covered that country.
+    - If the pass was bought but not applied, credit the incorrect charges.
+    - If the usage was outside the pass, explain the charges and offer a one-time goodwill credit as per policy.
+    - Set a roaming spend cap on the account to prevent future bill shock.
+  escalate: Escalate to the billing team for credits above the agent approval limit.
+
+- id: S19
+  category: billing_dispute
+  product: mobile
+  title: Charged twice in the same month
+  base_severity: medium
+  cause: A manual payment and the automatic payment were both taken for the same bill.
+  symptoms:
+    - I have been charged twice this month.
+    - Two payments were taken from my account for the same bill.
+    - My bill was paid twice.
+    - You took the monthly payment two times.
+    - I see a duplicate charge on my bank statement.
+    - Double payment taken for my mobile bill.
+  test_symptoms:
+    - The same amount left my bank on two different days for one invoice.
+    - Money was deducted again although I had already settled this month.
+    - My card shows a repeat debit from you.
+  tried:
+    - checked my bank statement
+    - checked the payment history in the app
+    - contacted my bank
+  resolution:
+    - Check the payment history for two payments against the same bill.
+    - Confirm the dates and amounts with the customer.
+    - Refund the duplicate payment to the original payment method, or leave it as credit if the customer prefers.
+    - Tell the customer the refund takes three to five working days.
+    - Advise the customer not to pay manually while automatic payment is active.
+  escalate: Escalate to the payments team if the second payment does not appear in the billing system.
+
+- id: S20
+  category: billing_dispute
+  product: mobile
+  title: Unknown premium subscription charges on bill
+  base_severity: medium
+  cause: A third-party premium service was subscribed to, often by accident, and is charged to the mobile bill.
+  symptoms:
+    - There are charges on my bill for a subscription I never signed up for.
+    - I am being charged every week for a premium service I do not know.
+    - My bill has third party charges I do not recognise.
+    - Unknown subscription charges keep appearing on my mobile bill.
+    - Something called a premium SMS service is charging me.
+    - I am paying for a game subscription I never ordered.
+  test_symptoms:
+    - Some company I have never heard of keeps adding fees to my statement.
+    - Mystery text services are eating my credit every few days.
+    - A recurring extra item keeps showing up that nobody in the family requested.
+  tried:
+    - sent STOP to the short code
+    - checked the bill in the app
+    - looked for the subscription on my phone
+  resolution:
+    - Find the third-party service name and short code on the itemised bill.
+    - Unsubscribe the customer from the service in the billing system.
+    - Apply a charge-to-bill bar so no new premium services can be added.
+    - Refund charges as per the third-party charge policy.
+    - Explain how to stop a service by texting STOP to the short code.
+  escalate: Escalate to the content services team if the third party will not cancel the subscription.
+
+- id: S21
+  category: plan_change
+  product: mobile
+  title: Plan upgrade not applied until next billing cycle
+  base_severity: low
+  cause: The plan change was scheduled for the next bill date instead of being applied immediately.
+  symptoms:
+    - I upgraded my plan but I still have the old data allowance.
+    - My new plan is not showing in the app.
+    - I changed my plan yesterday and nothing has changed.
+    - The plan upgrade has not been applied.
+    - I paid for a bigger plan but still have the old limits.
+    - My tariff change has not gone through.
+  test_symptoms:
+    - I moved to the larger package and the app still lists the smaller bundle.
+    - Bought more gigabytes per month yet the counter has not gone up.
+    - The switch to the unlimited deal did not take effect.
+  tried:
+    - restarted the phone
+    - logged out of the app and back in
+    - checked the confirmation text message
+  resolution:
+    - Check the plan change order and its effective date.
+    - If it is scheduled for the next bill date, explain this to the customer.
+    - If the customer needs it now, change the order to immediate effect and explain the part-month charge.
+    - Ask the customer to restart the phone and refresh the app after the change.
+    - Confirm the new allowance with the customer.
+  escalate: Escalate to billing if the order is complete but the old plan is still active after 24 hours.
+
+- id: S22
+  category: device_hardware
+  product: mobile
+  title: SIM card not detected because the SIM is damaged
+  base_severity: medium
+  cause: The SIM is worn, damaged or badly seated, so the phone cannot read it.
+  symptoms:
+    - My phone says no SIM card.
+    - The SIM is not being detected.
+    - The phone shows insert SIM even though the SIM is inside.
+    - My SIM card stopped being recognised.
+    - SIM card error on my phone.
+    - The phone keeps saying invalid SIM.
+  test_symptoms:
+    - The handset acts as if the tray were empty.
+    - My chip is no longer read by the device.
+    - It keeps asking me to put a card in when one is already there.
+  tried:
+    - restarted the phone
+    - took the SIM out and put it back
+    - cleaned the SIM with a dry cloth
+  resolution:
+    - Ask the customer to try the SIM in another phone to see if the SIM or the phone is at fault.
+    - Check the SIM status on the account to make sure it is not blocked.
+    - If the SIM fails in another phone, order a replacement SIM or issue an eSIM.
+    - Activate the replacement SIM and keep the same number.
+    - If the SIM works in another phone, advise the customer to have the phone's SIM slot checked.
+  escalate: No escalation needed. Refer to the device manufacturer if the SIM slot is faulty.
+
+- id: S23
+  category: voice_and_sms
+  product: mobile
+  title: Not receiving incoming calls because of call forwarding or do-not-disturb
+  base_severity: medium
+  cause: Call forwarding, do-not-disturb or a network call bar is sending incoming calls to voicemail.
+  symptoms:
+    - I am not receiving incoming calls.
+    - People say my phone goes straight to voicemail.
+    - I can make calls but nobody can call me.
+    - Incoming calls are not coming through.
+    - My phone does not ring when people call.
+    - Callers get a message that my number is unavailable.
+  test_symptoms:
+    - Friends tell me they cannot get through although I can dial out fine.
+    - Nobody is able to reach me, the handset stays silent.
+    - Everyone who tries to ring me gets the mailbox immediately.
+  tried:
+    - restarted the phone
+    - checked that do not disturb is off
+    - turned airplane mode on and off
+  resolution:
+    - Check the account for an incoming call bar and remove it if present.
+    - Ask the customer to cancel all call forwarding by dialling the cancel code.
+    - Check that do-not-disturb and focus modes are off and that unknown callers are not silenced.
+    - Refresh the network registration by sending a provisioning update to the SIM.
+    - Make a test call to the customer to confirm the phone rings.
+  escalate: Escalate to the network team if test calls still fail after the registration refresh.
+
+- id: S24
+  category: voice_and_sms
+  product: mobile
+  title: Verification code text messages not received
+  base_severity: medium
+  cause: Messages from short codes are blocked on the account or the phone's message centre number is wrong.
+  symptoms:
+    - I am not receiving OTP text messages.
+    - Verification codes from my bank are not arriving.
+    - I do not get any SMS codes on my phone.
+    - Text messages with one time passwords never arrive.
+    - I can get normal texts but not the verification ones.
+    - OTP messages are delayed by hours or do not come at all.
+  test_symptoms:
+    - The security pin that websites send me never shows up.
+    - Login codes from apps do not reach my handset.
+    - I cannot finish any sign-in because the confirmation message does not come.
+  tried:
+    - restarted the phone
+    - cleared old messages from the inbox
+    - checked that the sender is not blocked
+  resolution:
+    - Check whether short-code or premium SMS is barred on the account and remove the bar.
+    - Ask the customer to check the blocked senders list and the spam folder in the messages app.
+    - Check and correct the message centre number on the phone.
+    - Send a test short-code message to the customer.
+    - Ask the customer to free up message storage if the inbox is full.
+  escalate: Escalate to the messaging team if test short-code messages are not delivered.

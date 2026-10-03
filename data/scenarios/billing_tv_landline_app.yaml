@@ -1,0 +1,349 @@
+# Issue scenarios for home billing, TV, landline and the self-care app.
+
+- id: S25
+  category: billing_dispute
+  product: broadband
+  title: Broadband bill higher because promotional discount ended
+  base_severity: low
+  cause: The introductory discount period ended, so the bill went up to the standard price.
+  symptoms:
+    - My broadband bill is higher than usual this month.
+    - The monthly price went up without warning.
+    - I am being charged more than the price I signed up for.
+    - My bill increased and I do not know why.
+    - Why has my internet bill gone up?
+    - The amount on my bill is more than my contract price.
+  test_symptoms:
+    - This invoice is a tenner more than every previous one.
+    - The deal I agreed to was cheaper than what you now take each month.
+    - My home internet cost jumped suddenly.
+  tried:
+    - checked the bill in the app
+    - compared it with last month's bill
+    - read my contract email
+  resolution:
+    - Compare the current bill with the previous bill line by line.
+    - Check whether a promotional discount ended and on what date.
+    - Explain the change and show where the end date was stated in the contract.
+    - Check which retention offers the customer is eligible for and apply one if accepted.
+    - Confirm the new monthly price in writing.
+  escalate: Escalate to the retention team if the customer asks to cancel.
+
+- id: S26
+  category: billing_dispute
+  product: fibre
+  title: Charged an installation fee that was promised free
+  base_severity: low
+  cause: The free-installation offer code was not applied to the order, so the standard fee was billed.
+  symptoms:
+    - I was charged an installation fee that was supposed to be free.
+    - My first bill has a setup charge I was told would be waived.
+    - There is an activation fee on my bill but the offer said free installation.
+    - I have been billed for the engineer visit that was meant to be free.
+    - Wrong installation charge on my first fibre bill.
+    - The sales agent promised no setup cost but I was charged.
+  test_symptoms:
+    - The advert said fitting was included, yet my opening invoice lists a fee for it.
+    - I was assured there would be no connection cost and now there is one.
+    - A one-off line for the technician appeared that should not be there.
+  tried:
+    - checked the bill in the app
+    - found the order confirmation email
+    - contacted chat support once
+  resolution:
+    - Check the order for the offer code and the terms the customer signed up to.
+    - If free installation was part of the offer, credit the installation fee.
+    - Add the missing offer code to the account so later bills are correct.
+    - Tell the customer the credit will show on the next bill.
+    - Report the missed offer to the sales quality team.
+  escalate: Escalate to billing if the offer cannot be confirmed from the order or the call recording.
+
+- id: S27
+  category: payment_issue
+  product: broadband
+  title: Payment made but service suspended because payment was not matched
+  base_severity: high
+  cause: The payment was made with a wrong reference or is still in clearing, so the account shows unpaid and service was suspended.
+  symptoms:
+    - I paid my bill but my internet has been cut off.
+    - My service was suspended even though I already paid.
+    - The payment went out of my bank but the account still shows unpaid.
+    - I paid three days ago and it still says overdue.
+    - My broadband was disconnected for non payment but I have paid.
+    - The bill shows as outstanding after I paid it.
+  test_symptoms:
+    - You blocked our line although the money left my bank last week.
+    - I settled the balance and the portal still demands the same sum.
+    - We were switched off for arrears that I have already cleared.
+  tried:
+    - checked my bank statement
+    - checked the payment history in the app
+    - made the payment again
+  resolution:
+    - Ask for the payment date, amount, method and reference number.
+    - Search the unallocated payments for a payment that matches.
+    - Allocate the payment to the correct account.
+    - Lift the suspension and restore service immediately.
+    - Remove any late payment fee and confirm the balance with the customer.
+  escalate: Escalate to the payments team if the payment cannot be found within 24 hours of proof being supplied.
+
+- id: S28
+  category: payment_issue
+  product: mobile
+  title: Automatic payment failed because the card expired
+  base_severity: low
+  cause: The saved card expired or the bank declined it, so the automatic payment did not go through.
+  symptoms:
+    - My automatic payment failed this month.
+    - The direct debit did not go through.
+    - I got a message saying my payment was declined.
+    - Auto pay is not working on my account.
+    - My card payment was rejected.
+    - Payment failed and I do not know why.
+  test_symptoms:
+    - The monthly collection bounced and I received a warning text.
+    - You could not take the money from my card this time.
+    - My standing instruction was refused by the bank.
+  tried:
+    - checked my bank balance
+    - tried to pay again in the app
+    - checked the card details in the app
+  resolution:
+    - Check the reason for the payment failure on the account.
+    - If the card has expired, ask the customer to update the card details in the app.
+    - Take a one-off payment for the outstanding amount.
+    - Confirm that automatic payment is active with the new card.
+    - Waive the late payment fee if this is the first failure.
+  escalate: No escalation needed. Refer the customer to their bank if the bank keeps declining a valid card.
+
+- id: S29
+  category: billing_dispute
+  product: broadband
+  title: Still billed after cancelling the service
+  base_severity: medium
+  cause: The cancellation request was not completed, so the account stayed active and bills continued.
+  symptoms:
+    - I cancelled my broadband but I am still being billed.
+    - You are still charging me after I closed my account.
+    - I got a bill for a service I cancelled last month.
+    - My cancellation was not processed and I keep getting charged.
+    - Still paying for internet I cancelled.
+    - I returned the router and cancelled but the bills continue.
+  test_symptoms:
+    - Money still goes out every month for a contract I ended weeks ago.
+    - I told you to stop the service and invoices keep arriving.
+    - We left your company in the summer and are debited regardless.
+  tried:
+    - checked the cancellation email
+    - cancelled the direct debit at my bank
+    - contacted chat support once
+  resolution:
+    - Find the cancellation request and check its date and status.
+    - If the request was made but not completed, close the account from the original request date.
+    - Refund all charges made after the cancellation date.
+    - Confirm that the equipment was returned and remove any equipment fee.
+    - Send written confirmation of the closure and the final balance.
+  escalate: Escalate to the complaints team if there is no record of the cancellation and the customer has proof.
+
+- id: S30
+  category: plan_change
+  product: fibre
+  title: Speed upgrade purchased but speed unchanged
+  base_severity: low
+  cause: The new speed profile was not pushed to the ONT, or the customer's router cannot go faster than the old speed.
+  symptoms:
+    - I upgraded to a faster fibre plan but my speed is the same.
+    - I am paying for the 900 Mbps plan and still get 100.
+    - The speed boost I bought has not been applied.
+    - My fibre speed did not change after the upgrade.
+    - I upgraded last week and there is no difference in speed.
+    - The new faster package is not working.
+  test_symptoms:
+    - I moved up to the gigabit tier and the tests read exactly as before.
+    - We paid extra for quicker downloads and nothing got quicker.
+    - The higher tier never kicked in on our line.
+  tried:
+    - restarted the router
+    - ran a speed test on a wired connection
+    - checked the plan in the app
+  resolution:
+    - Check that the plan change order is complete and what speed profile is on the ONT.
+    - Re-push the new speed profile to the ONT.
+    - Ask the customer to power cycle the ONT and the router.
+    - Check that the router and the ethernet cable support gigabit speeds.
+    - Ask for a wired speed test and confirm the new speed.
+  escalate: Escalate to provisioning if the profile push fails twice.
+
+- id: S31
+  category: tv_service
+  product: tv
+  title: Set-top box shows error E-102 and no signal
+  base_severity: medium
+  cause: The set-top box lost its authorisation or its link to the TV service, which shows as error E-102.
+  symptoms:
+    - My TV box shows error E-102.
+    - The set-top box says no signal on all channels.
+    - Error E-102 on screen and no channels are working.
+    - My TV service is not working, there is just an error code.
+    - All channels are blank with a no signal message.
+    - The TV box shows an error and will not play anything.
+  test_symptoms:
+    - The decoder gives a fault number and every station is black.
+    - We cannot watch anything, the screen only shows a warning with digits.
+    - The telly receiver has lost all its programmes.
+  tried:
+    - restarted the set-top box
+    - checked the cables at the back of the box
+    - changed the HDMI port on the TV
+  resolution:
+    - Check that the TV subscription on the account is active and paid.
+    - Send an authorisation refresh signal to the set-top box.
+    - Ask the customer to power cycle the set-top box and wait five minutes.
+    - Check that the box is connected to the router and has a network connection.
+    - If the error stays, send a replacement set-top box.
+  escalate: Escalate to TV platform support if several customers report E-102 at the same time.
+
+- id: S32
+  category: tv_service
+  product: tv
+  title: TV picture freezing and pixelating
+  base_severity: low
+  cause: The set-top box is on weak Wi-Fi or the broadband is busy, so the TV stream breaks up.
+  symptoms:
+    - The TV picture keeps freezing.
+    - Channels are pixelating and the picture breaks up.
+    - The TV stutters and the sound cuts out.
+    - Picture quality is terrible, it keeps buffering.
+    - My TV service freezes every few minutes.
+    - The image goes blocky and then stops.
+  test_symptoms:
+    - Programmes pause and turn into squares constantly.
+    - Watching the match is impossible, it hangs every few seconds.
+    - The screen locks up and the audio goes out of step.
+  tried:
+    - restarted the set-top box
+    - changed the HDMI cable
+    - restarted the router
+  resolution:
+    - Check the set-top box connection type and its signal strength.
+    - Ask the customer to connect the box to the router with an ethernet cable.
+    - If only Wi-Fi is possible, move the box closer to the router or add a mesh unit.
+    - Run a broadband speed test to check there is enough bandwidth for TV.
+    - Update the set-top box software.
+  escalate: Raise a broadband speed fault if the line speed is below the TV minimum requirement.
+
+- id: S33
+  category: tv_service
+  product: tv
+  title: Subscribed channel pack missing
+  base_severity: low
+  cause: The channel pack was added to the account but the entitlement was not sent to the set-top box.
+  symptoms:
+    - I subscribed to the sports pack but the channels are not showing.
+    - The movie channels I paid for are missing.
+    - My new channel pack is not available on the TV.
+    - It says I am not subscribed to this channel but I am.
+    - The channels I added yesterday are still locked.
+    - Paid for extra channels and cannot watch them.
+  test_symptoms:
+    - I bought the football bundle and the box says I need to purchase it.
+    - The kids add-on I ordered is nowhere in the guide.
+    - Premium stations I signed up for stay blocked.
+  tried:
+    - restarted the set-top box
+    - checked my subscriptions in the app
+    - waited 24 hours
+  resolution:
+    - Check that the channel pack is active on the account.
+    - Send an entitlement refresh to the set-top box.
+    - Ask the customer to restart the box and wait five minutes.
+    - Check that the channel is part of the pack the customer bought.
+    - Credit the days the pack was paid for but not available.
+  escalate: Escalate to TV platform support if the entitlement refresh fails twice.
+
+- id: S34
+  category: voice_and_sms
+  product: landline
+  title: Crackling noise on landline calls
+  base_severity: low
+  cause: A corroded joint, a faulty handset or a bad socket adds noise to the copper line.
+  symptoms:
+    - There is a crackling noise on my landline.
+    - My home phone line is very noisy.
+    - I can hear static on every landline call.
+    - The landline has a loud buzzing sound.
+    - The phone line crackles and I can hardly hear people.
+    - Noise on the home phone makes calls impossible.
+  test_symptoms:
+    - Every time I use the house telephone there is hissing in the background.
+    - The fixed line sounds like frying bacon.
+    - Voices are drowned out by interference on the phone at home.
+  tried:
+    - tried a different handset
+    - unplugged the extension phones
+    - changed the phone cable
+  resolution:
+    - Run a line test to check for noise or a low insulation fault.
+    - Ask the customer to test with a corded phone in the master socket test port.
+    - If the noise goes away, the fault is in the customer's handset or extension wiring.
+    - If the noise stays, raise a line fault and book an engineer.
+    - Tell the customer that broadband speed may also improve after the repair.
+  escalate: Book an engineer if the line test shows a fault or the noise is present on the test port.
+
+- id: S35
+  category: connectivity_outage
+  product: landline
+  title: No dial tone on landline
+  base_severity: high
+  cause: A line fault or a disconnected cable means the landline has no dial tone.
+  symptoms:
+    - My landline has no dial tone.
+    - The home phone is completely dead.
+    - I cannot make or receive calls on my landline.
+    - The house phone is not working at all.
+    - No sound at all when I pick up the landline.
+    - Our phone line has stopped working.
+  test_symptoms:
+    - The receiver is silent when I lift it.
+    - Our fixed telephone does nothing.
+    - There is no tone to dial out on the home handset.
+  tried:
+    - tried a different handset
+    - checked the phone cable
+    - unplugged everything and plugged it back in
+  resolution:
+    - Check for a known fault or planned work in the area.
+    - Run a line test to look for a disconnection or short circuit.
+    - Ask the customer to test with a corded phone in the master socket test port.
+    - If there is still no dial tone, raise a line fault and book an engineer.
+    - Set up call divert to the customer's mobile until the line is fixed.
+  escalate: Escalate as a priority fault if the customer is vulnerable or relies on the landline for an alarm.
+
+- id: S36
+  category: account_access
+  product: self_care_app
+  title: Cannot log in to the app because the account is locked
+  base_severity: low
+  cause: Several failed login attempts locked the account, or the registered email is out of date.
+  symptoms:
+    - I cannot log in to the app.
+    - The app says my account is locked.
+    - My password is not being accepted in the app.
+    - I am not able to sign in to my online account.
+    - The login keeps failing on the self care app.
+    - I reset my password and still cannot get in.
+  test_symptoms:
+    - The portal refuses my credentials every single time.
+    - I am shut out of my profile on your mobile application.
+    - It will not let me in to view my bills online.
+  tried:
+    - reset my password
+    - reinstalled the app
+    - tried logging in on the website
+  resolution:
+    - Verify the customer's identity using the security questions.
+    - Check whether the account is locked and unlock it.
+    - Check that the registered email and mobile number are up to date.
+    - Send a password reset link and stay with the customer while they log in.
+    - Ask the customer to update the app to the latest version.
+  escalate: Escalate to the digital support team if login fails after the unlock and password reset.

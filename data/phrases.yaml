@@ -1,0 +1,162 @@
+# Building blocks the generator mixes around each scenario's symptom sentence.
+# Every pool has a "train" list (used for indexed tickets) and a "test" list
+# (used only for test queries), so test complaints use wording the system has never seen.
+
+openers:
+  train: ["Hi,", "Hello,", "Hi team,", "Good morning,", "", "", ""]
+  test: ["Hey there,", "Dear support,", "Hello folks,", "", ""]
+
+durations:
+  train:
+    - This started yesterday.
+    - It has been like this for three days.
+    - This has been going on for about a week.
+    - It began at the weekend.
+    - It has been happening since the start of the month.
+  test:
+    - It kicked off a couple of days back.
+    - We have put up with it for a fortnight now.
+    - It first showed up on Monday.
+
+# {a} and {b} are replaced by things the customer already tried.
+tried_one:
+  train:
+    - "I have already {a}."
+    - "I already {a} and it made no difference."
+    - "I {a} but nothing changed."
+  test:
+    - "Just so you know, I {a} already."
+    - "I did what the website says and {a}, to no avail."
+
+tried_two:
+  train:
+    - "I have already {a} and {b}."
+    - "I {a} and also {b}, still the same."
+  test:
+    - "Before you ask, I {a} and {b}."
+    - "For the record I {a}, then {b}, no luck."
+
+# Impact statements change the severity label.
+#   delta    -> how many levels the severity moves (low < medium < high < critical)
+#   weight   -> how often this impact is picked
+#   only_for -> categories where the statement makes sense (missing = all)
+impact:
+  none:
+    delta: 0
+    weight: 35
+    train: [""]
+    test: [""]
+  low_urgency:
+    delta: -1
+    weight: 12
+    train:
+      - It is not urgent, whenever you get a chance.
+      - No rush on this.
+      - It is a minor thing but I wanted to report it.
+    test:
+      - Not a big deal, just flagging it.
+      - Whenever someone has a spare moment is fine.
+  repeat_contact:
+    delta: 1
+    weight: 15
+    train:
+      - This is the third time I am contacting you about this.
+      - I already called twice and nothing was fixed.
+      - I reported this last week and nobody got back to me.
+    test:
+      - I have chased this up several times already.
+      - My earlier complaint about the same thing was closed without a fix.
+  business_impact:
+    delta: 1
+    weight: 25
+    only_for:
+      - connectivity_intermittent
+      - connectivity_outage
+      - slow_speed
+      - wifi_coverage
+      - device_hardware
+      - activation_provisioning
+      - voice_and_sms
+      - number_porting
+      - esim_management
+    train:
+      - I work from home and this is costing me.
+      - I run a small business and I am losing customers because of this.
+      - I need this for work and I have an important deadline this week.
+      - My children have online classes and cannot attend.
+    test:
+      - My job depends on this and my manager is losing patience.
+      - Our shop cannot take card payments while this goes on.
+      - I have exams online in two days.
+  money_pressure:
+    delta: 1
+    weight: 25
+    only_for: [billing_dispute, payment_issue, plan_change]
+    train:
+      - I am on a tight budget and cannot afford this.
+      - This money was meant for my rent.
+      - I am a pensioner and every pound matters.
+    test:
+      - This extra cost really hurts my finances this month.
+      - I had set that cash aside for the electricity bill.
+  vulnerable:
+    delta: 2
+    weight: 8
+    only_for:
+      - connectivity_intermittent
+      - connectivity_outage
+      - voice_and_sms
+      - device_hardware
+      - activation_provisioning
+    train:
+      - My elderly mother lives alone and relies on this to call for help.
+      - We have a medical alarm that depends on this service.
+      - I am disabled and this is my only way to contact my carer.
+    test:
+      - My father is housebound and this is his only lifeline.
+      - A personal emergency pendant in the house needs this to work.
+
+closers:
+  negative:
+    train:
+      - This is really unacceptable.
+      - I am extremely frustrated.
+      - Honestly I am fed up with this.
+      - If this is not fixed I will switch provider.
+      - This is the worst service I have ever had.
+      - I am very disappointed.
+    test:
+      - I have had enough of this nonsense.
+      - Absolutely appalling, sort it out.
+      - You people are useless.
+      - I am furious about this.
+  neutral:
+    train: ["Please look into it.", "Can you help?", "Please let me know what to do.", "Kindly advise.", ""]
+    test: ["What are the next steps?", "Could someone take a look?", ""]
+  positive:
+    train:
+      - Thanks in advance, your team has always been helpful.
+      - I appreciate your help as always.
+      - Otherwise I am very happy with the service.
+      - Thank you so much for your support.
+    test:
+      - Cheers, you have always sorted things quickly before.
+      - Many thanks, I have been a happy customer for years.
+
+# Fake personal details, added to some complaints to test PII masking later.
+# Phone numbers use a range reserved for fiction; emails use example.com.
+pii:
+  - "My account number is {account}."
+  - "You can call me on {phone}."
+  - "My email is {email}."
+  - "My number is {phone} and my account number is {account}."
+
+first_names: [alex, sam, priya, omar, lena, david, mei, carlos, aisha, tom, nina, ravi]
+last_names: [smith, patel, khan, garcia, brown, chen, okafor, nowak, silva, jones]
+
+# Added as the last line of a resolved ticket.
+outcomes:
+  - Customer confirmed the issue is resolved.
+  - Monitored for 24 hours and no further issues were seen.
+  - Customer tested and confirmed everything is working.
+  - Issue resolved and ticket closed with the customer's agreement.

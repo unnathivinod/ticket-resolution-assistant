@@ -1,0 +1,123 @@
+# HELD-OUT scenarios. These belong to categories that are NOT in the taxonomy yet.
+# They are kept out of the main index and used later to demo "a new ticket class appears":
+# the system should first say "unknown", then learn the class once it is approved.
+
+- id: H01
+  holdout: true
+  category: esim_management
+  product: mobile
+  title: eSIM QR code will not scan or activate
+  base_severity: medium
+  cause: The eSIM profile was already downloaded once or the QR code expired, so the phone refuses to install it.
+  symptoms:
+    - The eSIM QR code is not working.
+    - I cannot activate my eSIM, the QR code will not scan.
+    - My phone says the eSIM cannot be added.
+    - The eSIM download fails with an error.
+    - Scanning the eSIM code says it is no longer valid.
+    - I am unable to set up my eSIM.
+  test_symptoms:
+    - The digital SIM barcode you emailed gets rejected by my handset.
+    - Installing the embedded SIM profile stops halfway with a failure message.
+    - My phone will not accept the square code for the virtual SIM.
+  tried:
+    - restarted the phone
+    - connected to Wi-Fi before scanning
+    - scanned the QR code again
+  resolution:
+    - Check the eSIM profile status to see whether it was already downloaded or has expired.
+    - Check that the phone supports eSIM and is not locked to another network.
+    - Release the old profile and issue a new eSIM QR code.
+    - Ask the customer to connect to Wi-Fi and scan the new code.
+    - Confirm that the eSIM shows as active and make a test call.
+  escalate: Escalate to the eSIM platform team if a new profile also fails to download.
+
+- id: H02
+  holdout: true
+  category: esim_management
+  product: mobile
+  title: Transfer eSIM to a new phone
+  base_severity: low
+  cause: An eSIM cannot be moved like a plastic SIM. A new profile has to be issued for the new phone.
+  symptoms:
+    - I got a new phone and need to move my eSIM to it.
+    - How do I transfer my eSIM to another phone?
+    - My eSIM did not move over when I changed phones.
+    - I need my eSIM on my new device.
+    - The eSIM is still on my old phone and I cannot use the new one.
+    - I want to switch my eSIM to a different handset.
+  test_symptoms:
+    - I upgraded my handset and the digital SIM stayed behind on the old one.
+    - The embedded SIM needs shifting to my replacement device.
+    - My virtual SIM did not come across in the phone-to-phone copy.
+  tried:
+    - used the phone's transfer tool
+    - restarted both phones
+    - looked for the option in the app
+  resolution:
+    - Verify the customer's identity before any SIM change.
+    - Check that the new phone supports eSIM.
+    - Issue a new eSIM profile for the new phone, which deactivates the old one.
+    - Send the new QR code and guide the customer to install it over Wi-Fi.
+    - Ask the customer to delete the old eSIM profile from the old phone.
+  escalate: Escalate to the eSIM platform team if the new profile cannot be issued.
+
+- id: H03
+  holdout: true
+  category: security_fraud
+  product: mobile
+  title: Suspected SIM swap fraud
+  base_severity: high
+  cause: Someone requested a replacement SIM for the customer's number without permission, taking over the number.
+  symptoms:
+    - My phone suddenly lost service and I got a message about a SIM change I did not request.
+    - Someone has swapped my SIM without my permission.
+    - I think I am a victim of SIM swap fraud.
+    - I received a text saying my SIM was replaced but I did not ask for it.
+    - My number has been moved to another SIM without me knowing.
+    - I lost signal and now there are transactions on my bank I did not make.
+  test_symptoms:
+    - A stranger seems to have hijacked my number onto their own card.
+    - My line went dead right after an alert about a replacement I never ordered.
+    - Somebody took over my mobile identity and is receiving my codes.
+  tried:
+    - restarted the phone
+    - contacted my bank
+    - changed my email password
+  resolution:
+    - Verify the customer's identity with the enhanced security checks.
+    - Block the fraudulent SIM immediately.
+    - Restore the number to a new SIM or eSIM that the customer holds.
+    - Add a SIM-change lock and a new account PIN.
+    - Advise the customer to contact their bank and report the fraud.
+  escalate: Always escalate to the fraud team and log a security incident.
+
+- id: H04
+  holdout: true
+  category: security_fraud
+  product: mobile
+  title: Phishing text message pretending to be from the provider
+  base_severity: medium
+  cause: Scammers send texts that look like they are from the provider to steal login or payment details.
+  symptoms:
+    - I got a text saying my bill is unpaid with a link, is it real?
+    - I received a suspicious message asking me to update my payment details.
+    - Someone sent me a text pretending to be from you.
+    - I clicked a link in a text about my account and now I am worried.
+    - A message says my account will be suspended unless I pay through a link.
+    - I think I received a scam text using your company name.
+  test_symptoms:
+    - A dodgy SMS claims to be your firm and wants my card number.
+    - I typed my login into a page from a message that now looks fake.
+    - There is a fraudulent alert going around using your brand to get people's details.
+  tried:
+    - deleted the message
+    - blocked the sender
+    - changed my app password
+  resolution:
+    - Confirm that the message did not come from us and tell the customer not to click the link.
+    - If the customer entered details, reset the account password and PIN immediately.
+    - Check the account for recent changes or orders the customer did not make.
+    - Ask the customer to forward the message to the spam reporting number.
+    - Advise the customer to contact their bank if card details were entered.
+  escalate: Escalate to the fraud team if the account shows changes the customer did not make.

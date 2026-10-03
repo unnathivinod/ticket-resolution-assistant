@@ -1,0 +1,5 @@
+# Keep Linux line endings in the repository, even when editing on Windows.
+# Without this, scripts can break inside Docker containers.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
