@@ -236,6 +236,7 @@ def _unique_complaints(
             complaint = make_complaint(rng, scenario, symptom, phrases, split)
             if complaint["text"] not in seen:
                 seen.add(complaint["text"])
+                complaint["core_problem"] = symptom
                 complaints.append(complaint)
                 break
         else:
@@ -320,6 +321,9 @@ def _make_test_queries(
                 {
                     "id": f"{prefix}-{number:04d}",
                     "complaint": c["text"],
+                    # The scenario sentence alone, without greeting, impact or tone. Only used by
+                    # diagnostic evals, to measure how much the extra sentences hurt search.
+                    "core_problem": c["core_problem"],
                     "category": scenario["category"],
                     "product": scenario["product"],
                     "severity": c["severity"],

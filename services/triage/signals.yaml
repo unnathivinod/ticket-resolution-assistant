@@ -1,0 +1,72 @@
+# Signals the triage service looks for in a complaint, each with a few example sentences.
+#
+# How it works: the complaint is cut into sentences. If a sentence means roughly the same as
+# one of the examples below, that signal is switched on. Matching is by meaning (embeddings),
+# so new wordings are caught without listing every possible phrase.
+#
+# To teach the system a new signal, or improve one, edit this file. No code change is needed.
+#
+#   severity_delta: how many levels the signal moves severity (low < medium < high < critical)
+#   sentiment:      the sentiment label this signal implies
+
+signals:
+  vulnerable:
+    description: The customer depends on the service for health or safety.
+    severity_delta: 2
+    examples:
+      - My elderly mother lives alone and relies on this to call for help.
+      - We have a medical alarm that depends on this service.
+      - I am disabled and this is my only way to contact my carer.
+
+  business_impact:
+    description: The problem stops the customer from working, studying or running a business.
+    severity_delta: 1
+    examples:
+      - I work from home and this is costing me.
+      - I run a small business and I am losing customers because of this.
+      - I need this for work and I have an important deadline this week.
+      - My children have online classes and cannot attend.
+
+  repeat_contact:
+    description: The customer has already contacted support about this without a fix.
+    severity_delta: 1
+    examples:
+      - This is the third time I am contacting you about this.
+      - I already called twice and nothing was fixed.
+      - I reported this last week and nobody got back to me.
+
+  money_pressure:
+    description: The charge causes the customer financial difficulty.
+    severity_delta: 1
+    examples:
+      - I am on a tight budget and cannot afford this.
+      - This money was meant for my rent.
+      - I am a pensioner and every pound matters.
+
+  low_urgency:
+    description: The customer says the matter is not urgent.
+    severity_delta: -1
+    examples:
+      - It is not urgent, whenever you get a chance.
+      - No rush on this.
+      - It is a minor thing but I wanted to report it.
+
+  frustrated:
+    description: The customer is angry or upset.
+    sentiment: negative
+    examples:
+      - This is really unacceptable.
+      - I am extremely frustrated.
+      - Honestly I am fed up with this.
+      - If this is not fixed I will switch provider.
+      - This is the worst service I have ever had.
+      - I am very disappointed.
+
+  appreciative:
+    description: The customer is polite and positive about the service.
+    sentiment: positive
+    examples:
+      - Thanks in advance, your team has always been helpful.
+      - I appreciate your help as always.
+      - Otherwise I am very happy with the service.
+      - Thank you so much for your support.

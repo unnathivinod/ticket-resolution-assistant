@@ -8,7 +8,8 @@ A support agent pastes a raw customer complaint and gets back:
 
 Built as small microservices for a telecom support desk. Runs fully on a laptop: no paid API, no API key.
 
-> Status: work in progress. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full design.
+> Status: work in progress. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full design
+> and [docs/DESIGN_DECISIONS.md](docs/DESIGN_DECISIONS.md) for the choices made and the evidence behind them.
 
 ## Run it
 
@@ -16,8 +17,9 @@ Requirements: Docker Desktop and [Ollama](https://ollama.com/download).
 
 ```bash
 cp .env.example .env        # Windows PowerShell: copy .env.example .env
-docker compose up -d
-docker compose ps           # all services should show "healthy"
+docker compose up -d --build
+docker compose ps                                        # all services should show "healthy"
+docker compose run --rm tools python scripts/seed.py     # load the data (about a minute)
 ```
 
 | Service | URL |
@@ -25,6 +27,9 @@ docker compose ps           # all services should show "healthy"
 | Qdrant dashboard | http://localhost:6333/dashboard |
 | PostgreSQL | localhost:5432 |
 | Redis | localhost:6379 |
+| Embedding service (API docs) | http://localhost:8004/docs |
+| Retrieval service (API docs) | http://localhost:8002/docs |
+| Triage service (API docs) | http://localhost:8001/docs |
 
 If a port is already used on your machine, change it in `.env` (for example `REDIS_PORT=6380`).
 
@@ -49,13 +54,43 @@ docker compose run --rm tools pytest                            # data quality c
 Every row keeps its `scenario_id`, which is the answer key for the retrieval evals.
 Test wordings never appear in the indexed tickets (checked by a test), so the evals are not cheating.
 
+## Search quality (evals)
+
+```bash
+docker compose run --rm tools python evals/eval_retrieval.py                   # main table, about a minute
+docker compose run --rm tools python evals/eval_retrieval.py --with-reranker   # adds the slow reranker row
+docker compose run --rm tools python evals/eval_retrieval.py --diagnose        # experiments that explain the numbers
+```
+
+Runs the 360 held-out complaints through several search setups and prints a comparison table.
+Results are saved in `evals/results/`. What the numbers showed, and the design changes they caused,
+are written up in [docs/DESIGN_DECISIONS.md](docs/DESIGN_DECISIONS.md).
+
+## Triage quality (evals)
+
+```bash
+docker compose run --rm tools python evals/eval_triage.py --calibrate   # tune the settings, save them, report
+docker compose run --rm tools python evals/eval_triage.py               # report with the saved settings
+```
+
+Settings are tuned on one half of the eval complaints and the reported numbers come from the other
+half. The eval also checks that complaints from brand-new classes and off-topic questions are
+flagged as `unknown` instead of being forced into an existing class.
+
+## Tests
+
+```bash
+docker compose run --rm tools pytest                  # fast tests, no services needed
+docker compose run --rm tools pytest -m integration   # checks against the running services
+```
+
 ## Build progress
 
 - [x] Project skeleton and databases (Postgres, Qdrant, Redis)
 - [x] Synthetic telecom dataset (tickets + KB articles)
-- [ ] Embedding service
-- [ ] Ingestion and retrieval (hybrid search + reranker)
-- [ ] Triage service
+- [x] Embedding service
+- [x] Data loading and retrieval (hybrid search, tuned from eval results)
+- [x] Triage service (category, product, severity, sentiment)
 - [ ] Generation service (RAG with citations)
 - [ ] Gateway and agent UI
 - [ ] Evolving data and ticket classes

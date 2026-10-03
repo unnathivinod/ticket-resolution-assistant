@@ -78,6 +78,11 @@ def test_every_test_query_has_matching_indexed_tickets(dataset):
         assert set(query["relevant_kb_ids"]) <= kb_ids
 
 
+def test_test_queries_keep_their_core_problem_sentence(dataset, inputs):
+    held_out = {w for s in inputs["scenarios"] for w in s["test_symptoms"]}
+    assert all(q["core_problem"] in held_out for q in dataset["test_queries"])
+
+
 def test_all_severity_and_sentiment_levels_appear(dataset):
     assert {t["severity"] for t in dataset["tickets"]} == set(SEVERITIES)
     assert {t["sentiment"] for t in dataset["tickets"]} == set(SENTIMENTS)

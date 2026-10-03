@@ -1,6 +1,6 @@
 # Starts the databases the project needs, plus a toolbox container for one-off jobs.
 # Run:  docker compose up -d      Stop:  docker compose down
-# Our own services (gateway, triage, retrieval, ...) get added here step by step.
+# Our own services (embedding, retrieval, triage, ...) get added here step by step.
 
 name: ticket-assistant
 
@@ -55,6 +55,67 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # Embedding service: turns text into vectors (dense + BM25) and reranks search results
+  embedding:
+    build:
+      context: .
+      dockerfile: services/embedding/Dockerfile
+      args:
+        EMBEDDING_DENSE_MODEL: ${EMBEDDING_DENSE_MODEL:-BAAI/bge-small-en-v1.5}
+    ports:
+      - "127.0.0.1:${EMBEDDING_PORT:-8004}:8004"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8004/ready', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+
+  # Retrieval service: hybrid search over Qdrant plus reranking
+  retrieval:
+    build:
+      context: .
+      dockerfile: services/retrieval/Dockerfile
+    environment:
+      RETRIEVAL_QDRANT_URL: http://qdrant:6333
+      RETRIEVAL_EMBEDDING_URL: http://embedding:8004
+    ports:
+      - "127.0.0.1:${RETRIEVAL_PORT:-8002}:8002"
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      embedding:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8002/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    restart: unless-stopped
+
+  # Triage service: labels a complaint (category, product, severity, sentiment)
+  triage:
+    build:
+      context: .
+      dockerfile: services/triage/Dockerfile
+    environment:
+      TRIAGE_RETRIEVAL_URL: http://retrieval:8002
+      TRIAGE_EMBEDDING_URL: http://embedding:8004
+    ports:
+      - "127.0.0.1:${TRIAGE_PORT:-8001}:8001"
+    depends_on:
+      retrieval:
+        condition: service_healthy
+      embedding:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8001/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    restart: unless-stopped
+
   # Toolbox: one-off jobs (generate data, load data, run tests and evals).
   # Not started by "docker compose up". Use:  docker compose run --rm tools <command>
   tools:
@@ -62,6 +123,15 @@ services:
       context: .
       dockerfile: tools/Dockerfile
     profiles: ["tools"]
+    environment:
+      # Lets scripts import the project's own code (libs/, services/) from any folder.
+      PYTHONPATH: /app
+      # Inside Docker, services reach each other by name (postgres, qdrant, ...), not localhost.
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      QDRANT_URL: http://qdrant:6333
+      EMBEDDING_URL: http://embedding:8004
+      RETRIEVAL_URL: http://retrieval:8002
+      TRIAGE_URL: http://triage:8001
     volumes:
       - .:/app
     working_dir: /app
