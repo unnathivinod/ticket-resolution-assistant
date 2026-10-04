@@ -399,7 +399,7 @@ The full list, with alternatives and the measurements behind them, is in
 |---|---|---|
 | Search | Hybrid, dense weighted 3x, no reranker | Measured. Matches the best accuracy and still finds exact codes. The reranker cost 900 ms for no gain. |
 | Triage | Nearest-neighbour vote plus example-based signals | No retraining when classes change. Every label comes with a reason. |
-| LLM | `llama3.2:3b` through an OpenAI-compatible API | Free, runs for a reviewer with no key. A hosted model is a change of three settings, and it can be put first with Ollama as its backup (README, 'Choosing the language model'). |
+| LLM | `llama3.2:3b` through an OpenAI-compatible API | Free, runs for a reviewer with no key. A hosted model is a change of three settings, and it can be put first with Ollama as its backup (GUIDE.md, 'Choosing the language model'). |
 | Model output | JSON constrained to a schema | Always parseable, and source IDs cannot be invented. |
 | No model available | Quote the best source | The system never returns nothing. |
 | Read path and write path | Separate: synchronous answers, queued indexing | Heavy indexing must never slow an agent down. |
@@ -533,12 +533,13 @@ into two clean groups at a similarity of 0.85, and only there (they merge at 0.8
 ## 10. Repository structure
 
 ```
-├── README.md                 how to run it, what each command shows
+├── README.md                 what it is, how to run it, what was measured
 ├── docker-compose.yml        12 containers, started with one command
 ├── .env.example              every setting, no secrets
 ├── docs/
 │   ├── ARCHITECTURE.md       this file
-│   └── DESIGN_DECISIONS.md   each choice, the alternative, and the measurement behind it
+│   ├── DESIGN_DECISIONS.md   each choice, the alternative, and the measurement behind it
+│   └── GUIDE.md              every address and command
 ├── libs/common/              shared code: logging, metrics, PII masking, service clients
 ├── services/
 │   ├── gateway/              front door, orchestration, data and class endpoints
@@ -593,13 +594,13 @@ Each part was built, measured, and changed where the measurement disagreed with 
 | Problem understanding | 15 | Section 1. "Already tried" handling, the agent as reviewer, escalation instead of guessing. |
 | Solution depth, production scale | 25 | Sections 3 to 5 and 9. Read and write paths, fallbacks, queue with sweep, cache versioning, capacity. |
 | Design decisions | 20 | Section 7, section 11, and DESIGN_DECISIONS.md with the measurements. |
-| Code | 25 | Section 10. 247 tests, CI, typed request models, one-command run. |
-| Checkpoints, evals, monitoring | 15 | Section 8. Ten checkpoints, four evals, 16 tested alerts, a dashboard, a health check. |
+| Code | 25 | Section 10. 273 tests (252 fast, 21 against the running system), CI, typed request models, one-command run. |
+| Checkpoints, evals, monitoring | 15 | Section 8. Ten checkpoints, five evals, 17 tested alerts, a dashboard, a health check. |
 
 | Deliverable | Where |
 |---|---|
 | Architecture diagram | Section 3 |
-| Executable code on GitHub | The repository. README has the commands. |
+| Executable code on GitHub | The repository. README has the commands, docs/GUIDE.md has every one of them. |
 | Additional exploration | Section 11, new-class discovery, the match-check experiment, cache versioning |
 | Evals on system health | Section 8 |
 | Production scale considerations | Section 9 |
@@ -609,7 +610,8 @@ Each part was built, measured, and changed where the measurement disagreed with 
 ## 13. Known limitations
 
 - **It does not know when it does not know.** For a telecom problem the knowledge base does not
-  cover, it drafts a confident answer from the closest wrong source. A person must review every draft.
+  cover, the local model drafts a confident answer from the closest wrong source. The larger hosted
+  model refused 3 of 6 such complaints and answered the other 3 wrongly. A person must review every draft.
 - **Search is the bottleneck.** The right source is among the five given to the model for 83% of
   complaints. Most wrong answers start there.
 - **"Grounded" is not "correct".** The source check proves a step was copied faithfully, not
