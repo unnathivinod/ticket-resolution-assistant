@@ -86,6 +86,10 @@ Then open **http://localhost:8501** and press **Resolve**.
 | `What is the best recipe for chocolate cake?` | Not a telecom problem, so it should be stopped: no fix is drafted and escalation is recommended. (77% of off-topic questions are stopped this way.) |
 | Any problem the knowledge base does not cover | Escalation. Click **Record the real fix**, save a fix on the Record a fix page, go back and press Resolve again: the new fix is now used. |
 
+The reply to the customer, drafted with one click from the steps that passed the source check:
+
+![The reply to the customer](docs/images/page-reply.png)
+
 The menu on the left has one page for each kind of user:
 
 | Page | Who it is for | What it does |
