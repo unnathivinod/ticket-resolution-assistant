@@ -186,10 +186,10 @@ Seven small programs of our own, plus ready-made infrastructure.
 | **Gateway** | 8000 | The only front door. API keys (agent and admin), rate limit, PII masking, cache, runs the steps in order, checkpoints, audit log, feedback, data and class endpoints. | Triage, Retrieval, Generation, Redis, PostgreSQL |
 | **Triage** | 8001 | Category, product, severity and sentiment, each with a reason or a confidence. Says "unknown" when unsure. | Retrieval, Embedding |
 | **Retrieval** | 8002 | Finds the most similar tickets and KB sections (hybrid search). | Embedding, Qdrant |
-| **Generation** | 8003 | Builds the prompt, calls the LLM, checks the answer. If the model fails it asks the backup model (when one is set), and if that fails too it quotes the source. | Ollama (or a hosted model), Embedding |
+| **Generation** | 8003 | Builds the prompt, calls the LLM, checks the answer. If the model fails it asks the backup model (when one is set), and if that fails too it quotes the source. Also writes the reply to the customer from the checked steps. | Ollama (or a hosted model), Embedding |
 | **Embedding** | 8004 | The only place the small models live: text to dense vector, text to BM25 vector. | none |
 | **Ingestion worker** | 8005 (metrics) | Keeps the search index in step with PostgreSQL. Retries, dead-letter list, safety sweep. | Redis, PostgreSQL, Embedding, Qdrant |
-| **Web page** | 8501 | Paste a complaint, see labels, the drafted fix, its sources, and give feedback. | Gateway |
+| **Web page** | 8501 | Paste a complaint, see labels, the drafted fix and its sources, draft the reply to the customer, and give feedback. | Gateway |
 
 | Infrastructure | Why it is there |
 |---|---|
@@ -243,6 +243,7 @@ Other endpoints on the gateway:
 
 | Endpoint | Who | What |
 |---|---|---|
+| `POST /v1/reply` | agent | The message for the customer of an earlier answer, by its `request_id`. Built only from steps that passed the source check |
 | `POST /v1/feedback` | agent | Helpful or not, a comment, and the right category if ours was wrong |
 | `GET /v1/taxonomy` | agent | The ticket classes in use |
 | `POST /v1/tickets`, `PUT /v1/kb/{id}`, `DELETE /v1/documents/{id}` | admin | Add, update or retire a ticket or article |
@@ -425,7 +426,8 @@ The full list, with alternatives and the measurements behind them, is in
 | 7 | Every step has a real citation | The step is dropped |
 | 8 | Each step is close in meaning to its cited source | Marked "not verified", `grounded: false` |
 | 9 | Step repeats what the customer tried | Flagged |
-| 10 | A person reviews the draft | Feedback and category corrections are stored |
+| 10 | The customer reply uses only steps that passed 8 and 9 | Other steps are left out and the agent is told how many. No usable step: the reply offers no fix |
+| 11 | A person reviews the draft and the reply | Feedback and category corrections are stored |
 
 ### 8.2 Evals and what they measured
 
@@ -504,8 +506,8 @@ into two clean groups at a similarity of 0.85, and only there (they merge at 0.8
 - **`scripts/health_check.py`**: one command that checks every service, sends a real complaint
   and an off-topic question through the gateway, and lists firing alerts.
 - **Logs**: one JSON line per request. The same request ID appears in every service it touched.
-- **CI** (GitHub Actions): code style, 254 fast tests, compose file, Prometheus config and alert tests.
-  21 more tests run against the live system.
+- **CI** (GitHub Actions): code style, 292 fast tests, compose file, Prometheus config and alert tests.
+  22 more tests run against the live system.
 
 ---
 
@@ -556,7 +558,7 @@ into two clean groups at a similarity of 0.85, and only there (they merge at 0.8
 ├── scripts/                  generate_data, seed, migrate, demo, health_check, add_document, discover_classes
 ├── evals/                    eval_retrieval, eval_triage, eval_evolving, eval_answers, eval_relevance_gate, results/
 ├── infra/                    PostgreSQL schema, Prometheus rules, Grafana dashboard, CI workflow
-└── tests/                    254 fast tests, 21 tests against the live system
+└── tests/                    292 fast tests, 22 tests against the live system
 ```
 
 How a reviewer runs it (no API key needed):
@@ -595,8 +597,8 @@ Each part was built, measured, and changed where the measurement disagreed with 
 | Problem understanding | 15 | Section 1. "Already tried" handling, the agent as reviewer, escalation instead of guessing. |
 | Solution depth, production scale | 25 | Sections 3 to 5 and 9. Read and write paths, fallbacks, queue with sweep, cache versioning, capacity. |
 | Design decisions | 20 | Section 7, section 11, and DESIGN_DECISIONS.md with the measurements. |
-| Code | 25 | Section 10. 275 tests (254 fast, 21 against the running system), CI, typed request models, one-command run. |
-| Checkpoints, evals, monitoring | 15 | Section 8. Ten checkpoints, five evals, 17 tested alerts, a dashboard, a health check. |
+| Code | 25 | Section 10. 314 tests (292 fast, 22 against the running system), CI, typed request models, one-command run. |
+| Checkpoints, evals, monitoring | 15 | Section 8. Eleven checkpoints, five evals, 17 tested alerts, a dashboard, a health check. |
 
 | Deliverable | Where |
 |---|---|

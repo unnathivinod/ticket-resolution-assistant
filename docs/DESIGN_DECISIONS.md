@@ -340,6 +340,25 @@ is the recommended setting when a key is available, with the local model as its 
 Still to try: the match-check prompt (`LLM_MATCH_CHECK=true`) with the larger model, to see
 whether it refuses the remaining 3 new-class complaints without refusing answerable ones.
 
+### The reply to the customer: wording from the model, facts from the checked answer
+
+An agent's work does not end with the fix. It ends with a message to the customer. The page has a
+button for that, and `POST /v1/reply` does the same for any other client.
+
+| Decision | Chosen | Alternative | Why |
+|---|---|---|---|
+| What the reply is built from | Only the steps that passed the source check and do not repeat what the customer tried | Give the model the sources again and let it write freely | A customer must never be told an unchecked step. The model's job here is wording and tone, not finding a fix. |
+| Where the steps come from | The gateway reads them from the audit log by request ID | The page sends the steps back | The reply always matches what the system really answered, and a caller cannot pass in text of its own. |
+| When it is written | Only when the agent asks for it | With every answer | Most drafts are read first. Writing a reply every time would double the model calls, and a hosted free plan counts each one. |
+| Tone | Decided in code from the triage labels: an apology for negative sentiment, a word about the impact for high or critical severity | Let the model judge the tone | The same labels the agent sees, the same result every time, and it can be tested without a model. |
+| No usable step | The reply says the case was passed to the specialist team and offers no fix | Offer the unverified steps anyway | A wrong instruction sent to a customer costs more than a later answer. |
+| When the model fails | Backup model, then a template with the steps filled in. If the generation service cannot be reached at all, the gateway fills in the same template | Show an error | The button always gives the agent something to edit. The template is one shared function (`libs/common/customer_reply.py`). |
+| Checks on the text | Ticket and article IDs are removed, markdown is removed, the sign-off line is added if missing, an empty or overlong reply is retried | Trust the model | Internal references must not reach a customer. Each removal is counted, so a model that keeps doing it shows up on a metric. |
+
+Known limit: the wording has no eval yet. Rules check the form and only checked steps go in, but
+whether the message says nothing beyond those steps is judged by the agent who reads it. The next
+step would be a small set of replies scored for "adds nothing that is not in the steps".
+
 ## Gateway: one front door
 
 The agent web page and any other client only ever talk to the gateway. It runs the steps in order

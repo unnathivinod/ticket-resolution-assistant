@@ -58,6 +58,28 @@ With a small local model on a CPU the resolution takes up to a minute; asking th
 is answered from the cache at once. If no model is running, the answer is quoted directly from the
 best matching source, so the demo still works.
 
+### The reply to the customer
+
+Under the drafted fix the page has a **Draft reply to customer** button. The same as an API call, with the
+`request_id` that `/v1/resolve` returned:
+
+```bash
+curl -X POST http://localhost:8000/v1/reply \
+  -H "X-API-Key: dev-local-key" -H "Content-Type: application/json" \
+  -d '{"request_id": "PASTE-THE-ID-HERE"}'
+```
+
+| What it does | Detail |
+|---|---|
+| Reads the earlier answer from the audit log | The caller sends only the ID, so the reply always matches what the system really answered |
+| Uses checked steps only | A step that is not backed by its source, or that repeats what the customer already tried, is left out. `steps_left_out` says how many |
+| Sets the tone from the labels | An apology when the sentiment is negative, a word about the impact when the severity is high or critical |
+| Never invents a fix | With no usable step the reply says the case was passed to the specialist team |
+| Keeps internal details out | Ticket and article IDs are removed from the text |
+| Always returns something | First model, then the backup model, then a template with the steps filled in (`mode: template`) |
+
+Counted in `gateway_replies_total` and `generation_replies_total`, by `llm` or `template`.
+
 ## What the gateway does on every request
 
 | Step | What happens | If it goes wrong |

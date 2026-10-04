@@ -8,6 +8,9 @@ Pipeline for one request:
   4. If the model is unavailable or its answer is unusable, ask the backup model when one is
      configured. If that fails too, fall back to quoting the resolution steps of the best
      source directly. The service always returns something useful.
+
+A second, smaller job (draft_reply): turn the checked steps into the message the agent sends
+to the customer. Same order of models, and a plain template when no model answers.
 """
 
 from __future__ import annotations
@@ -17,6 +20,7 @@ import time
 
 from prometheus_client import Counter, Histogram
 
+from libs.common.customer_reply import template_reply
 from libs.common.llm_client import LLMOutputError, LLMUnavailableError
 from libs.common.pii import mask_pii
 from services.generation.config import Settings
@@ -26,6 +30,13 @@ from services.generation.prompt import (
     clean_step_text,
     prompt_version,
     system_prompt,
+)
+from services.generation.reply import (
+    REPLY_PROMPT_VERSION,
+    REPLY_SCHEMA,
+    build_reply_prompt,
+    clean_reply,
+    reply_system_prompt,
 )
 from services.generation.sources import (
     SourceGroup,
@@ -61,8 +72,14 @@ LLM_SECONDS = Histogram(
     buckets=(1, 2, 5, 10, 20, 30, 45, 60, 90, 120, 180),
 )
 TOKENS = Counter("generation_tokens_total", "Tokens read and written by the model", ["kind"])
+REPLIES = Counter("generation_replies_total", "Customer replies drafted, by how they were made", ["mode"])
+REPLY_IDS_REMOVED = Counter(
+    "generation_reply_ids_removed_total", "Ticket or article IDs taken out of a customer reply"
+)
 # Start every known label at 0, so dashboards show a zero instead of nothing and the
 # first event is counted. (Prometheus cannot see a rise from "does not exist" to 1.)
+for _mode in ("llm", "template"):
+    REPLIES.labels(_mode)
 for _mode in ("llm", "extractive"):
     ANSWERS.labels(_mode)
 for _reason in ("llm_disabled", "llm_unavailable", "invalid_output"):
@@ -313,6 +330,106 @@ class Generator:
             # Set when the first-choice model failed and the backup model wrote the answer.
             "failover_from": failover_from if mode == "llm" else None,
             "prompt_version": prompt_version(settings.match_check),
+            "usage": {key: usage.get(key, 0) for key in ("prompt_tokens", "completion_tokens")},
+            "timings_ms": {name: round(seconds * 1000, 1) for name, seconds in timings.items()},
+        }
+
+    # ---- the reply to the customer ---------------------------------------------------------
+
+    def _write_reply(
+        self,
+        llm,
+        complaint: str,
+        steps: list[str],
+        already_tried: list[str],
+        sentiment: str | None,
+        severity: str | None,
+        escalated: bool,
+        timings: dict,
+    ) -> tuple[str | None, dict, str | None]:
+        """Ask one model for the reply and tidy it. Returns (text, token usage, why it failed)."""
+        settings = self._settings
+        usage, reason = {}, None
+        for _attempt in range(2):  # one retry if the reply is unusable
+            stage = time.perf_counter()
+            try:
+                raw, usage = llm.chat_json(
+                    system=reply_system_prompt(sentiment, severity, settings.max_reply_words),
+                    user=build_reply_prompt(complaint, steps, already_tried, escalated),
+                    schema=REPLY_SCHEMA,
+                    max_tokens=settings.max_reply_tokens,
+                    temperature=settings.reply_temperature,
+                )
+            except LLMUnavailableError as error:
+                log.warning("model unavailable", extra={"fields": {"model": llm.model, "error": str(error)}})
+                timings["llm"] = timings.get("llm", 0.0) + time.perf_counter() - stage
+                return None, usage, "llm_unavailable"  # do not wait for a second timeout
+            except LLMOutputError as error:
+                log.warning("unusable reply", extra={"fields": {"model": llm.model, "error": str(error)}})
+                timings["llm"] = timings.get("llm", 0.0) + time.perf_counter() - stage
+                reason = "invalid_output"
+                continue
+            timings["llm"] = timings.get("llm", 0.0) + time.perf_counter() - stage
+            TOKENS.labels("prompt").inc(usage.get("prompt_tokens", 0))
+            TOKENS.labels("completion").inc(usage.get("completion_tokens", 0))
+
+            text, removed = clean_reply(raw.get("reply", ""))
+            REPLY_IDS_REMOVED.inc(removed)
+            if 40 <= len(text) <= settings.max_reply_chars:
+                return text, usage, None
+            reason = "invalid_output"  # empty, a few words only, or far too long: try again
+        return None, usage, reason
+
+    def draft_reply(
+        self,
+        complaint: str,
+        steps: list[str],
+        already_tried: list[str] | None = None,
+        sentiment: str | None = None,
+        severity: str | None = None,
+        escalated: bool = False,
+    ) -> dict:
+        """Write the message for the customer from steps that were already checked.
+
+        The same order as for the answer: first model, backup model, then a template with no
+        model at all. The caller always gets a reply the agent can edit.
+        """
+        settings = self._settings
+        started = time.perf_counter()
+        timings: dict[str, float] = {}
+        complaint = mask_pii(complaint)
+        steps = [text for text in (str(step).strip() for step in steps) if text][: settings.max_reply_steps]
+        already_tried = [text for text in (str(item).strip() for item in already_tried or []) if text]
+        escalated = escalated or not steps  # no checked step to offer means a person must take over
+
+        text, usage, fallback_reason = None, {}, "llm_disabled"
+        answered_by, failover_from = None, None
+        models = [self._llm, self._fallback_llm] if settings.llm_enabled and self._llm is not None else []
+        for position, llm in enumerate(model for model in models if model is not None):
+            if position > 0:
+                FAILOVERS.labels(fallback_reason).inc()
+                failover_from = self._llm.model
+            text, usage, fallback_reason = self._write_reply(
+                llm, complaint, steps, already_tried, sentiment, severity, escalated, timings
+            )
+            if text is not None:
+                answered_by = llm.model
+                break
+
+        mode = "llm"
+        if text is None:
+            mode = "template"
+            text = template_reply(steps, sentiment, escalated)
+        REPLIES.labels(mode).inc()
+        timings["total"] = time.perf_counter() - started
+        return {
+            "reply": text,
+            "mode": mode,
+            "model": answered_by,
+            "failover_from": failover_from if mode == "llm" else None,
+            "fallback_reason": fallback_reason,
+            "escalated": escalated,
+            "prompt_version": REPLY_PROMPT_VERSION,
             "usage": {key: usage.get(key, 0) for key in ("prompt_tokens", "completion_tokens")},
             "timings_ms": {name: round(seconds * 1000, 1) for name, seconds in timings.items()},
         }

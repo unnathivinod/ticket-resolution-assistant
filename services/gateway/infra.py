@@ -173,6 +173,15 @@ class PostgresStore:
             log.exception("could not write the audit log")
             return False
 
+    def get_request(self, request_id: str) -> dict | None:
+        """One stored /v1/resolve request: what was asked and what was answered. None if unknown."""
+        with self._connection() as conn:
+            return conn.execute(
+                """SELECT complaint_masked, triage, resolution, escalated
+                   FROM resolve_requests WHERE request_id = %s""",
+                (uuid.UUID(request_id),),
+            ).fetchone()
+
     def save_feedback(
         self,
         request_id: str,

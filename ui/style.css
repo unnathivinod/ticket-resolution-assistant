@@ -172,6 +172,24 @@
 .bone { height: 14px; border-radius: 99px; background: linear-gradient(90deg, #eceef7 25%, #f8f9fd 50%, #eceef7 75%);
   background-size: 200% 100%; animation: shimmer 1.4s linear infinite; }
 
+/* ---- reply to the customer (a Streamlit container: a button, a switch and the message inside) ---- */
+.st-key-reply { background: var(--card); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow);
+  gap: 0; overflow: hidden; animation: rise .4s ease both; }
+.st-key-reply_ask, .st-key-reply_head { padding: 14px 24px; align-items: center; }
+.st-key-reply_ask .res-note { display: block; margin-top: 3px; }
+.st-key-reply_head { border-bottom: 1px solid var(--line); }
+.st-key-reply_body { padding: 18px 24px; }
+.st-key-reply_foot { padding: 6px 24px; background: #f8f9fd; border-top: 1px solid var(--line); align-items: center; }
+.reply-notes { display: flex; flex-direction: column; gap: 10px; padding: 18px 24px 0; }
+.st-key-reply [data-testid="stCode"] pre { background: #f7f8fc; border: 1px solid var(--line); border-radius: 12px;
+  padding: 18px 20px; }
+.st-key-reply [data-testid="stCode"] code { font-family: var(--sans); font-size: 15.5px; line-height: 1.6; color: var(--ink);
+  white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Streamlit shows the copy button only while the mouse is over the message. Here it is always shown. */
+.st-key-reply [data-testid="stCode"] > div:has([data-testid="stElementToolbarButton"]) { opacity: 1; visibility: visible; }
+.st-key-reply textarea { font-size: 15.5px; line-height: 1.6; color: var(--ink); }
+.st-key-reply .stButton button[kind="tertiary"] p { color: var(--accent); font-weight: 700; font-size: 14.5px; }
+
 /* ---- sources ---- */
 .srcs { padding: 18px 24px 12px; }
 .srcs .card-h { padding-bottom: 8px; }
@@ -206,4 +224,4 @@
   .stMainBlockContainer { padding: 52px 16px 36px; }
 }
 @media (max-width: 520px) { .tiles { grid-template-columns: 1fr; } }
-@media (prefers-reduced-motion: reduce) { .card, .tile, .st-key-res, .stHtml .steps li, .bone { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .card, .tile, .st-key-res, .st-key-reply, .stHtml .steps li, .bone { animation: none; } }

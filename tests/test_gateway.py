@@ -16,6 +16,7 @@ from tests.fakes import InMemoryCache, InMemoryQueue, InMemoryStore
 
 KEY = {"X-API-Key": "test-key"}
 COMPLAINT = "My broadband drops every evening. Call me on 07700 900123."
+REPLY = "Hello,\n\nWe are running a line test from our side.\n\nKind regards,\n[Agent name]"
 
 
 def source(source_id, source_type, similarity):
@@ -99,6 +100,15 @@ class FakeGeneration(FakeService):
             "model": "fake-llm",
             "prompt_version": "v2",
         }
+
+    def reply(self, complaint, steps, already_tried=None, sentiment=None, severity=None, escalated=False):
+        self.reply_calls = [
+            *getattr(self, "reply_calls", []),
+            (complaint, steps, sentiment, severity, escalated),
+        ]
+        if self.error:
+            raise self.error
+        return {"reply": REPLY, "mode": "llm", "model": "fake-llm", "failover_from": None}
 
 
 class Limiter:
@@ -321,6 +331,74 @@ def test_rate_limited_requests_get_429_with_retry_after(setup):
 def test_bad_complaints_are_rejected(setup, complaint):
     client, _ = setup
     assert client.post("/v1/resolve", json={"complaint": complaint}, headers=KEY).status_code == 422
+
+
+# ---- reply to the customer ----------------------------------------------------------------------
+
+
+def draft_reply(client, request_id):
+    return client.post("/v1/reply", json={"request_id": request_id}, headers=KEY)
+
+
+def test_the_reply_is_built_from_the_stored_answer(setup):
+    client, parts = setup
+    request_id = resolve(client)["request_id"]
+    response = draft_reply(client, request_id)
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["reply"] == REPLY and body["mode"] == "llm" and body["model"] == "fake-llm"
+    assert body["steps_used"] == 1 and body["steps_left_out"] == 0 and body["escalated"] is False
+    assert body["request_id"] == request_id and body["degraded"] == []
+    complaint, steps, sentiment, severity, escalated = parts["generation"].reply_calls[0]
+    assert "07700" not in complaint and "[PHONE]" in complaint  # the masked text from the audit log
+    assert steps == ["Run a line test."] and (sentiment, severity, escalated) == ("negative", "high", False)
+    assert 'gateway_replies_total{mode="llm"}' in client.get("/metrics").text
+
+
+def test_only_checked_steps_reach_the_customer(setup):
+    client, parts = setup
+    request_id = resolve(client)["request_id"]
+    stored = parts["store"].requests[-1]["resolution"]["steps"]
+    stored.append({"n": 2, "text": "Reset the account.", "verified": False, "repeats_already_tried": False})
+    stored.append({"n": 3, "text": "Restart the router.", "verified": True, "repeats_already_tried": True})
+    body = draft_reply(client, request_id).json()
+    assert parts["generation"].reply_calls[0][1] == ["Run a line test."]
+    assert body["steps_used"] == 1 and body["steps_left_out"] == 2
+
+
+def test_an_escalated_complaint_gets_a_reply_without_a_fix(setup):
+    client, parts = setup
+    parts["retrieval"].search = lambda *a, **k: {"results": [source("T-000001", "ticket", 0.5)]}
+    request_id = resolve(client)["request_id"]
+    body = draft_reply(client, request_id).json()
+    assert body["escalated"] is True and body["steps_used"] == 0
+    _, steps, _, _, escalated = parts["generation"].reply_calls[0]
+    assert steps == [] and escalated is True
+
+
+def test_the_reply_is_a_template_when_generation_is_down(setup):
+    client, parts = setup
+    request_id = resolve(client)["request_id"]
+    parts["generation"].error = ServiceError("generation is down")
+    body = draft_reply(client, request_id).json()
+    assert body["mode"] == "template" and body["model"] is None and body["degraded"] == ["generation"]
+    assert "1. Run a line test." in body["reply"] and "I am sorry" in body["reply"]  # the customer was upset
+    assert 'gateway_replies_total{mode="template"}' in client.get("/metrics").text
+
+
+def test_a_reply_needs_a_key_a_valid_id_and_a_known_request(setup):
+    client, parts = setup
+    request_id = resolve(client)["request_id"]
+    assert client.post("/v1/reply", json={"request_id": request_id}).status_code == 401
+    assert draft_reply(client, "not-an-id").status_code == 422
+    assert draft_reply(client, str(uuid.uuid4())).status_code == 404
+
+    def broken(request_id):
+        raise RuntimeError("database is down")
+
+    parts["store"].get_request = broken
+    response = draft_reply(client, request_id)
+    assert response.status_code == 503 and "could not be read" in response.json()["detail"]
 
 
 # ---- feedback ---------------------------------------------------------------------------------

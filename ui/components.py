@@ -261,6 +261,50 @@ def resolution_body_html(result: dict) -> str:
     )
 
 
+# ---- reply to the customer ---------------------------------------------------------------------
+
+
+def reply_head_html(draft: dict | None = None) -> str:
+    """The title of the reply card. Once a reply exists, a badge says what it was built from."""
+    badge = ""
+    if draft:
+        used = draft.get("steps_used", 0)
+        if used:
+            plural = "" if used == 1 else "s"
+            badge = f'<span class="badge ok">{icon("check")}Built from {used} checked step{plural}</span>'
+        else:
+            badge = f'<span class="badge warn">{icon("warn")}No fix included: handed to specialists</span>'
+    return f'<div class="res-title"><h2>Reply to the customer</h2>{badge}</div>'
+
+
+def reply_notes_html(draft: dict) -> str:
+    """What the agent should know before sending the reply. Empty when there is nothing to say."""
+    notes = []
+    left_out = draft.get("steps_left_out", 0)
+    if left_out:
+        what = "1 step was" if left_out == 1 else f"{left_out} steps were"
+        notes.append(
+            notice(
+                f"{what} left out of this reply: not verified against the source, "
+                "or the customer already tried it."
+            )
+        )
+    if draft.get("mode") == "template":
+        notes.append(
+            notice(
+                "The language model was not used. This is a standard reply with the steps filled in.", "info"
+            )
+        )
+    elif first_choice := draft.get("failover_from"):
+        notes.append(
+            notice(
+                f"The first-choice model ({first_choice}) did not answer. The backup model wrote this.",
+                "info",
+            )
+        )
+    return f'<div class="reply-notes">{"".join(notes)}</div>' if notes else ""
+
+
 def drafting_html() -> str:
     """Shown in place of the resolution while the model is writing."""
     lines = "".join(f'<div class="bone" style="width:{width}%"></div>' for width in (92, 78, 86, 64))

@@ -3,6 +3,8 @@
 from ui.components import (
     cited_ids,
     pretty,
+    reply_head_html,
+    reply_notes_html,
     resolution_body_html,
     resolution_head_html,
     sources_html,
@@ -174,6 +176,26 @@ def test_text_from_customers_and_the_model_cannot_inject_html():
     assert "<script>" not in html and "<img" not in html and "&lt;script&gt;" in html
     nasty = [SOURCES[0] | {"title": "<b>bold</b>", "text": "<b>bold</b> body"}]
     assert "<b>bold" not in sources_html(nasty)
+
+
+# ---- reply to the customer ---------------------------------------------------------------------------
+
+
+def test_the_reply_card_says_what_the_reply_was_built_from():
+    assert "badge" not in reply_head_html()  # before the agent asks for a reply
+    assert "Built from 2 checked steps" in reply_head_html({"steps_used": 2})
+    assert "Built from 1 checked step<" in reply_head_html({"steps_used": 1})
+    escalated = reply_head_html({"steps_used": 0})
+    assert "No fix included" in escalated and "badge warn" in escalated
+
+
+def test_the_reply_card_warns_about_left_out_steps_and_a_missing_model():
+    assert reply_notes_html({"mode": "llm", "steps_left_out": 0}) == ""
+    assert "1 step was left out" in reply_notes_html({"mode": "llm", "steps_left_out": 1})
+    assert "2 steps were left out" in reply_notes_html({"mode": "llm", "steps_left_out": 2})
+    assert "The language model was not used" in reply_notes_html({"mode": "template"})
+    backup = reply_notes_html({"mode": "llm", "failover_from": "<b>hosted</b>"})
+    assert "The backup model wrote this" in backup and "<b>hosted" not in backup
 
 
 # ---- side menu ---------------------------------------------------------------------------------------

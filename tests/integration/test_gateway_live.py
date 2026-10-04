@@ -83,3 +83,19 @@ def test_an_off_topic_question_is_escalated_and_feedback_is_saved(http):
 def test_feedback_for_an_unknown_request_is_refused(http):
     feedback = {"request_id": str(uuid.uuid4()), "helpful": True}
     assert http.post("/v1/feedback", json=feedback, headers=KEY).status_code == 404
+
+
+def test_a_reply_can_be_drafted_for_an_escalated_complaint(http):
+    question = {"complaint": "What is the best recipe for a chocolate cake?"}
+    request_id = http.post("/v1/resolve", json=question, headers=KEY).json()["request_id"]
+
+    # One short model call (or the template if no model answers), so allow a slow local model.
+    response = http.post("/v1/reply", json={"request_id": request_id}, headers=KEY, timeout=180)
+    body = response.json()
+    assert response.status_code == 200, response.text
+    assert body["mode"] in ("llm", "template")
+    assert body["escalated"] is True and body["steps_used"] == 0  # no fix exists, so none is offered
+    assert body["reply"].startswith("Hello") and "[Agent name]" in body["reply"]
+
+    unknown = http.post("/v1/reply", json={"request_id": str(uuid.uuid4())}, headers=KEY)
+    assert unknown.status_code == 404

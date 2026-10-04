@@ -6,6 +6,8 @@ A telecom support agent pastes a customer complaint and gets, in one screen:
 2. **What was done before**: similar past tickets and knowledge-base articles, found by meaning, not only by keywords.
 3. **What to do now**: a drafted step-by-step fix in which every step names the ticket or article it came from.
 
+One more click drafts **the reply to the customer**, written only from the steps that passed the source check.
+
 It is built as small services, runs on a laptop with one command, and needs no paid API and no API key.
 
 ![The agent web page](docs/images/web-page.png)
@@ -79,6 +81,7 @@ Then open **http://localhost:8501** and press **Resolve**.
 | Type this | What to expect |
 |---|---|
 | The complaint already in the box (broadband drops every evening) | Labels, five sources, and a fix in which each step cites its sources. "Restarted the router twice" is listed as already tried and is not suggested again. |
+| Press **Draft reply to customer** under the fix | A message you can edit and copy. It apologises if the customer was upset, does not ask them to repeat what they already tried, and contains no ticket numbers. |
 | `I was charged twice this month` | A billing category this time, and a fix drawn from the billing tickets and articles. |
 | `What is the best recipe for chocolate cake?` | Not a telecom problem, so it should be stopped: no fix is drafted and escalation is recommended. (77% of off-topic questions are stopped this way.) |
 | Any problem the knowledge base does not cover | Escalation. Click **Record the real fix**, save a fix on the Record a fix page, go back and press Resolve again: the new fix is now used. |
@@ -155,12 +158,12 @@ No knowledge base covers everything. What matters is what the system does when i
 
 | Concern | What is built |
 |---|---|
-| A part fails | Each service can fail without taking the rest down. Model down: the backup model answers, then steps are quoted from the source. Triage down: answer without labels. Cache or database down: still answer. |
+| A part fails | Each service can fail without taking the rest down. Model down: the backup model answers, then steps are quoted from the source (and the customer reply falls back to a template). Triage down: answer without labels. Cache or database down: still answer. |
 | Security and privacy | API keys with separate agent and admin rights, a per-key rate limit, and personal details masked before anything is stored or sent to a model |
 | Data that changes | New tickets, edited articles and new ticket classes go live through the API, by a queue with retries and a safety sweep. Old cached answers are dropped automatically |
-| Trust in the answer | Citations are checked against the sources, unsupported steps are flagged, "already tried" items the customer never said are removed |
+| Trust in the answer | Citations are checked against the sources, unsupported steps are flagged, "already tried" items the customer never said are removed. The customer reply uses only steps that passed these checks |
 | Knowing it is healthy | 17 alert rules with their own tests, a 25-panel dashboard, one-command health check, one log line per request with the same ID in every service |
-| Knowing it is correct | Five eval scripts, 254 fast tests, 21 tests against the running system, and CI on every push |
+| Knowing it is correct | Five eval scripts, 292 fast tests, 22 tests against the running system, and CI on every push |
 
 ![The monitoring dashboard](docs/images/dashboard.png)
 
@@ -171,6 +174,8 @@ No knowledge base covers everything. What matters is what the system does when i
 - **It does not always know when it has no fix.** For a telecom problem the knowledge base does not
   cover, the local model drafts a confident wrong answer; the larger model refuses half of them.
   A person must review every draft.
+- **The customer reply is not measured yet.** Rules check its form (no ticket numbers, length, sign-off) and it
+  only receives checked steps, but its wording has no eval. The agent reads it before sending.
 - **The data is synthetic**, built from 40 hand-written problem scenarios. Real tickets are messier.
 - **Small samples** in the answer eval (20 known complaints). The numbers show direction, not precision.
 

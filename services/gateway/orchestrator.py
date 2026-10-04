@@ -19,11 +19,13 @@ import uuid
 
 from prometheus_client import Counter, Histogram
 
+from libs.common.customer_reply import template_reply, usable_steps
 from libs.common.pii import mask_pii
 from libs.common.service_client import ServiceError
 from services.gateway.config import Settings
 
 OUTCOMES = Counter("gateway_resolve_total", "Resolve requests by outcome", ["outcome"])
+REPLIES = Counter("gateway_replies_total", "Customer replies drafted, by how they were made", ["mode"])
 CACHE = Counter("gateway_cache_total", "Cache lookups", ["result"])
 STAGE_SECONDS = Histogram(
     "gateway_stage_seconds",
@@ -53,6 +55,8 @@ for _result in ("hit", "miss"):
     CACHE.labels(_result)
 for _service in ("triage", "generation"):
     DEGRADED.labels(_service)
+for _mode in ("llm", "template"):
+    REPLIES.labels(_mode)
 
 
 NO_MATCH_REASON = (
@@ -265,6 +269,51 @@ class Orchestrator:
                 "index_version": response["meta"].get("index_version"),
             }
         )
+
+    def reply(self, request_id: str) -> dict | None:
+        """Draft the message for the customer of one earlier /v1/resolve request. None if unknown.
+
+        The caller sends only the request ID. The complaint and the steps are read from the
+        audit log, so the reply is always built from what the system really answered, and only
+        from steps that passed the source check.
+        """
+        record = self._store.get_request(request_id)
+        if record is None:
+            return None
+        resolution = record["resolution"] or {}
+        triage = record["triage"] or {}
+        steps, left_out = usable_steps(resolution)
+        sentiment = (triage.get("sentiment") or {}).get("label")
+        severity = (triage.get("severity") or {}).get("label")
+        # No checked step to offer means a person must take over, whatever the answer said.
+        escalated = bool(record["escalated"]) or not steps
+        degraded: list[str] = []
+        try:
+            answer = self._generation.reply(
+                record["complaint_masked"],
+                steps,
+                resolution.get("already_tried") or [],
+                sentiment,
+                severity,
+                escalated,
+            )
+        except ServiceError:
+            # The generation service cannot be reached: fill in the template here instead.
+            degraded.append("generation")
+            DEGRADED.labels("generation").inc()
+            answer = {"reply": template_reply(steps, sentiment, escalated), "mode": "template"}
+        REPLIES.labels(answer["mode"]).inc()
+        return {
+            "request_id": request_id,
+            "reply": answer["reply"],
+            "mode": answer["mode"],
+            "model": answer.get("model"),
+            "failover_from": answer.get("failover_from"),
+            "escalated": escalated,
+            "steps_used": len(steps),
+            "steps_left_out": left_out,
+            "degraded": degraded,
+        }
 
     def feedback(
         self,

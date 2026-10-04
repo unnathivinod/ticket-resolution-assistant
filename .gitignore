@@ -19,3 +19,6 @@ Thumbs.db
 *.log
 .cache/
 models_cache/
+
+# Design mock-ups and previews saved during development (not part of the project)
+Claude outputs/

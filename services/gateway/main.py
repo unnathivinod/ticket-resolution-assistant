@@ -2,8 +2,9 @@
 
 Endpoints
   POST /v1/resolve    complaint -> labels, sources and a cited resolution   (needs X-API-Key)
+  POST /v1/reply      request ID of an earlier answer -> a message for the customer, ready to edit
   POST /v1/feedback   thumbs up/down, and the right category if ours was wrong
-  GET  /health        is the process alive?
+  GET  /health       is the process alive?
   GET  /ready         which dependencies are reachable?
   GET  /metrics       numbers for Prometheus
 
@@ -51,6 +52,10 @@ class ResolveRequest(BaseModel):
     complaint: str = Field(min_length=1, description="The customer's complaint, as written")
     generate: bool = Field(True, description="False = only labels and sources, skip the slow drafting step")
     use_cache: bool = Field(True, description="False = always draft a fresh answer (used by the evals)")
+
+
+class ReplyRequest(BaseModel):
+    request_id: str = Field(description="The request_id returned by /v1/resolve")
 
 
 class FeedbackRequest(BaseModel):
@@ -168,6 +173,38 @@ def create_app(
                     "degraded": response["meta"]["degraded"],
                     "top_similarity": response["meta"]["top_similarity"],
                     "latency_ms": response["meta"]["latency_ms"],
+                }
+            },
+        )
+        return response
+
+    @app.post("/v1/reply")
+    def reply(body: ReplyRequest, request: Request, caller: str = Depends(authorised)) -> dict:
+        try:
+            uuid.UUID(body.request_id)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="request_id is not a valid ID") from None
+        try:
+            response = request.app.state.orchestrator.reply(body.request_id)
+        except Exception as error:  # noqa: BLE001 - the database is down: say so instead of crashing
+            log.error("reply not drafted", extra={"fields": {"error": str(error), "caller": caller}})
+            raise HTTPException(
+                status_code=503, detail="The earlier answer could not be read. Try again."
+            ) from error
+        if response is None:
+            raise HTTPException(status_code=404, detail="Unknown request_id")
+        log.info(
+            "reply drafted",
+            extra={
+                "fields": {
+                    "resolve_id": body.request_id,
+                    "caller": caller,
+                    "mode": response["mode"],
+                    "model": response["model"],
+                    "steps_used": response["steps_used"],
+                    "steps_left_out": response["steps_left_out"],
+                    "escalated": response["escalated"],
+                    "degraded": response["degraded"],
                 }
             },
         )

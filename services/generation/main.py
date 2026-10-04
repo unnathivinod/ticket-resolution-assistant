@@ -2,7 +2,8 @@
 
 Endpoints
   POST /generate   complaint + retrieved sources -> cited, checked resolution
-  GET  /health     is the process alive?
+  POST /reply      complaint + checked steps -> the message the agent sends to the customer
+  GET  /health    is the process alive?
   GET  /ready      is the embedding service reachable? (also reports whether the models are available)
   GET  /metrics    numbers for Prometheus
 """
@@ -69,6 +70,29 @@ class GenerateResponse(BaseModel):
     failover_from: str | None = Field(
         default=None, description="The first-choice model, when it failed and the backup model answered"
     )
+    prompt_version: str
+    usage: dict[str, int]
+    timings_ms: dict[str, float]
+
+
+class ReplyRequest(BaseModel):
+    complaint: str = Field(min_length=1)
+    steps: list[str] = Field(default_factory=list, max_length=20, description="Checked steps only")
+    already_tried: list[str] = Field(default_factory=list, max_length=20)
+    sentiment: str | None = None
+    severity: str | None = None
+    escalated: bool = False
+
+
+class ReplyResponse(BaseModel):
+    reply: str = Field(description="The message for the customer, ready for the agent to edit")
+    mode: Literal["llm", "template"] = Field(description="'template' = filled in without a model")
+    model: str | None = Field(description="The model that wrote the reply. None for a template")
+    failover_from: str | None = Field(
+        default=None, description="The first-choice model, when it failed and the backup model answered"
+    )
+    fallback_reason: str | None
+    escalated: bool = Field(description="True when the reply hands the case to the specialist team")
     prompt_version: str
     usage: dict[str, int]
     timings_ms: dict[str, float]
@@ -154,6 +178,34 @@ def create_app(generator: Generator | None = None, settings: Settings | None = N
                     "steps": len(result["steps"]),
                     "grounded": result["grounded"],
                     "escalate": result["escalate"],
+                    "fallback_reason": result["fallback_reason"],
+                    "usage": result["usage"],
+                    "timings_ms": result["timings_ms"],
+                }
+            },
+        )
+        return result
+
+    @app.post("/reply", response_model=ReplyResponse)
+    def reply(body: ReplyRequest, request: Request) -> dict:
+        if not body.complaint.strip():
+            raise HTTPException(status_code=422, detail="complaint is empty")
+        if len(body.complaint) > settings.max_complaint_chars:
+            raise HTTPException(
+                status_code=422, detail=f"complaint is longer than {settings.max_complaint_chars} characters"
+            )
+        result = request.app.state.generator.draft_reply(
+            body.complaint, body.steps, body.already_tried, body.sentiment, body.severity, body.escalated
+        )
+        log.info(
+            "reply drafted",
+            extra={
+                "fields": {
+                    "mode": result["mode"],
+                    "model": result["model"],
+                    "failover_from": result["failover_from"],
+                    "steps": len(body.steps),
+                    "escalated": result["escalated"],
                     "fallback_reason": result["fallback_reason"],
                     "usage": result["usage"],
                     "timings_ms": result["timings_ms"],

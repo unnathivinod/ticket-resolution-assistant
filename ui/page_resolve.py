@@ -1,4 +1,4 @@
-"""The main page: paste a complaint, get the labels, the drafted fix and the sources."""
+"""The main page: paste a complaint, get the labels, the drafted fix, a reply and the sources."""
 
 from __future__ import annotations
 
@@ -10,6 +10,8 @@ from ui.components import (
     cited_ids,
     drafting_html,
     page_title_html,
+    reply_head_html,
+    reply_notes_html,
     resolution_body_html,
     resolution_head_html,
     sources_html,
@@ -20,6 +22,9 @@ EXAMPLE = (
     "My broadband drops every evening around 8 and I've already restarted the router twice, "
     "I work from home and this is costing me"
 )
+
+# One line of a card: text on the left, a control on the right, both centred on the line.
+ROW = {"horizontal": True, "horizontal_alignment": "distribute", "vertical_alignment": "center"}
 
 
 def feedback_link(request_id: str) -> None:
@@ -51,6 +56,56 @@ def resolution_card(result: dict) -> None:
             )
 
 
+def write_reply(request_id: str) -> None:
+    """Ask the gateway for the customer reply of this answer and keep it for the page."""
+    try:
+        with st.spinner("Writing the reply ..."):
+            st.session_state["reply"] = call_gateway("/v1/reply", {"request_id": request_id})
+    except GatewayError as error:
+        st.error(str(error))
+        return
+    st.rerun()
+
+
+def reply_card(result: dict) -> None:
+    """The message for the customer. It is written only when the agent asks for it."""
+    request_id = result["request_id"]
+    draft = st.session_state.get("reply")
+    if draft and draft.get("request_id") != request_id:
+        draft = None  # a reply that belongs to an earlier complaint
+    with st.container(key="reply"):
+        if draft is None:
+            with st.container(key="reply_ask", **ROW):
+                st.html(
+                    reply_head_html() + '<span class="res-note">A message you can edit and send, '
+                    "built only from the checked steps.</span>"
+                )
+                if st.button("Draft reply to customer", type="primary", icon=":material/mail:"):
+                    write_reply(request_id)
+            return
+
+        with st.container(key="reply_head", **ROW):
+            st.html(reply_head_html(draft))
+            editing = st.toggle("Edit", key=f"reply_edit_{request_id}")
+        if notes := reply_notes_html(draft):
+            st.html(notes)
+        with st.container(key="reply_body"):
+            if editing:
+                # No key: the edited text is kept in the draft itself, so it survives a page change.
+                draft["reply"] = st.text_area(
+                    "Reply to the customer", value=draft["reply"], height=320, label_visibility="collapsed"
+                )
+            else:
+                st.code(draft["reply"], language=None, wrap_lines=True)
+        with st.container(key="reply_foot", **ROW):
+            st.html(
+                '<span class="res-note">Read it before sending. '
+                "The copy button is at the top right of the message.</span>"
+            )
+            if st.button("Write it again", type="tertiary", icon=":material/refresh:"):
+                write_reply(request_id)
+
+
 def show() -> None:
     st.html(page_title_html("Resolve a complaint", "Paste what the customer wrote, then press Resolve"))
     with st.container(key="ask"):
@@ -67,7 +122,7 @@ def show() -> None:
         )
 
     if pressed:
-        for name in ("result", "feedback_sent", "fix_saved"):
+        for name in ("result", "reply", "feedback_sent", "fix_saved"):
             st.session_state.pop(name, None)
         st.session_state["complaint"] = complaint
         if not complaint.strip():
@@ -90,4 +145,5 @@ def show() -> None:
         result = st.session_state["result"]
         st.html(tiles_html(result["triage"]))
         resolution_card(result)
+        reply_card(result)
         st.html(sources_html(result["sources"], cited_ids(result["resolution"])))

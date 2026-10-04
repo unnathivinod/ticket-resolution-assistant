@@ -153,6 +153,9 @@ class InMemoryStore:
         self.requests.append(record)
         return True
 
+    def get_request(self, request_id):
+        return next((record for record in self.requests if record["request_id"] == request_id), None)
+
     def save_feedback(self, request_id, helpful, comment, edited, correct_category=None) -> bool:
         if request_id not in {record["request_id"] for record in self.requests}:
             return False

@@ -41,6 +41,13 @@ class Settings(BaseSettings):
     max_steps: int = 4  # fewer steps = a shorter, faster answer
     max_complaint_chars: int = 4000
 
+    # The reply to the customer (POST /reply). Short on purpose: an agent reads it before sending.
+    max_reply_words: int = 130
+    max_reply_tokens: int = 350
+    max_reply_chars: int = 1800  # a longer reply is treated as unusable
+    max_reply_steps: int = 6
+    reply_temperature: float = 0.3  # a little freer than the answer, so the wording sounds natural
+
     # Checks on the model's answer.
     support_threshold: float = 0.65  # how close a step must be to its cited source to count as supported
     repeat_threshold: float = 0.8  # how close a step must be to an already-tried action to be flagged
