@@ -148,6 +148,23 @@ def test_a_new_ticket_is_searchable_after_the_worker_runs(system):
     assert system["redis"].get(INDEX_VERSION_KEY) == "1"  # cached answers are now stale
 
 
+def test_recorded_fixes_can_be_listed_with_their_search_status(system):
+    client = system["client"]
+    assert client.get("/v1/tickets/recorded", headers=ADMIN).json() == {"items": []}
+    recorded = add_ticket(system)
+    add_ticket(system, id="T-000999", scenario_id="S01")  # part of a dataset: has an answer key
+    listed = client.get("/v1/tickets/recorded", headers=ADMIN).json()["items"]
+    assert [row["id"] for row in listed] == [recorded]
+    assert listed[0]["subject"] == TICKET["subject"] and listed[0]["steps"] == 2
+    assert listed[0]["searchable"] is False and listed[0]["is_active"] is True
+
+    system["worker"].run_once(block=False)
+    assert client.get("/v1/tickets/recorded", headers=ADMIN).json()["items"][0]["searchable"] is True
+    client.delete(f"/v1/documents/{recorded}", headers=ADMIN)
+    assert client.get("/v1/tickets/recorded", headers=ADMIN).json()["items"][0]["is_active"] is False
+    assert client.get("/v1/tickets/recorded", headers=AGENT).status_code == 403  # agents cannot see it
+
+
 def test_saving_the_same_ticket_again_updates_it_instead_of_duplicating(system):
     ticket_id = add_ticket(system, id="T-EXT-42")
     add_ticket(system, id="T-EXT-42", subject="eSIM QR code expired")

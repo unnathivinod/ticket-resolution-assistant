@@ -1,6 +1,14 @@
-"""The HTML parts of the agent page (ui/components.py). No browser and no Streamlit needed."""
+"""The HTML parts of the agent pages (ui/components.py). No browser and no Streamlit needed."""
 
-from ui.components import cited_ids, facts_html, header_html, pretty, resolution_html, sources_html
+from ui.components import (
+    cited_ids,
+    pretty,
+    resolution_body_html,
+    resolution_head_html,
+    sources_html,
+    status_html,
+    tiles_html,
+)
 
 TRIAGE = {
     "category": {"label": "connectivity_intermittent", "confidence": 0.92, "best_guess": None},
@@ -57,31 +65,42 @@ def test_labels_are_made_readable():
     assert pretty(None) == ""
 
 
-def test_facts_show_labels_confidence_and_severity_scale():
-    html = facts_html(TRIAGE)
-    assert "Connectivity intermittent" in html and "92%" in html and "width:92%" in html
-    assert "Business impact" in html
-    assert html.count('class="on"') == 2 and html.count('class="top"') == 1  # low, medium, then high
-    assert "No strong tone found" in html
+# ---- what this is ---------------------------------------------------------------------------------
+
+
+def test_tiles_show_labels_confidence_and_the_severity_scale():
+    html = tiles_html(TRIAGE)
+    assert "Connectivity intermittent" in html and "92% of similar tickets agree" in html
+    assert "width:92%" in html and "Business impact" in html
+    assert html.count('class="on"') == 2 and html.count('class="hot"') == 1  # low, medium, then high
+    assert "t-sev hot" in html and "No strong tone found" in html
     assert "label it manually" not in html
 
 
-def test_facts_ask_for_a_manual_label_when_the_category_is_unclear():
+def test_tiles_ask_for_a_manual_label_when_the_category_is_unclear():
     unclear = TRIAGE | {
         "needs_review": True,
         "category": {"label": "unknown", "confidence": 0.3, "best_guess": "billing_dispute"},
     }
-    assert "closest: Billing dispute" in facts_html(unclear)
+    assert "closest: Billing dispute" in tiles_html(unclear)
 
 
-def test_facts_without_triage_explain_that_labels_are_missing():
-    assert "Labels are unavailable" in facts_html(None)
+def test_without_triage_the_page_says_that_labels_are_missing():
+    assert "Labels are unavailable" in tiles_html(None)
 
 
 def test_low_severity_is_not_shown_as_urgent():
-    calm = TRIAGE | {"severity": {"label": "low", "reasons": []}}
-    html = facts_html(calm)
-    assert "No urgency signals" in html and 'class="top"' not in html and "scale calm" in html
+    html = tiles_html(TRIAGE | {"severity": {"label": "low", "reasons": []}})
+    assert "No urgency signals" in html and 'class="hot"' not in html and "t-sev calm" in html
+
+
+def test_a_negative_tone_is_never_described_as_no_tone_found():
+    upset = TRIAGE | {"sentiment": {"label": "negative"}}  # the gateway sends the label only
+    html = tiles_html(upset)
+    assert "Negative" in html and "No strong tone found" not in html
+
+
+# ---- sources ----------------------------------------------------------------------------------------
 
 
 def test_sources_are_marked_used_or_not_used():
@@ -101,60 +120,67 @@ def test_no_sources_is_said_plainly():
     assert "No similar past case was found" in sources_html([])
 
 
+# ---- suggested resolution ---------------------------------------------------------------------------
+
+
 def test_resolution_shows_cause_tried_and_steps_with_their_sources():
-    html = resolution_html(answer())
+    html = resolution_body_html(answer())
     assert "Peak-hour congestion." in html and "Restarted the router twice" in html
     assert "Run a remote line test." in html and 'class="chip kb">KB-001<' in html
     assert 'class="note' not in html and 'class="flag"' not in html
+    assert "1 of 1 steps backed by a source" in resolution_head_html(answer())
 
 
 def test_resolution_flags_steps_that_need_a_second_look():
     result = answer()
     result["resolution"]["steps"][0] |= {"verified": False, "repeats_already_tried": True}
     result["resolution"]["grounded"] = False
-    html = resolution_html(result)
+    html = resolution_body_html(result)
     assert "Not verified against the source" in html and "The customer already tried this" in html
     assert "not backed by the cited sources" in html
+    head = resolution_head_html(result)
+    assert "0 of 1 steps backed by a source" in head and "badge warn" in head
 
 
 def test_resolution_without_an_answer_asks_to_escalate():
-    html = resolution_html(answer(resolution=None, escalation_reason="Nothing similar was found."))
-    assert "Nothing similar was found. Please escalate." in html and "Recommended steps" not in html
-    said_once = resolution_html(answer(resolution=None, escalation_reason="Escalate to second-line support."))
+    refused = answer(resolution=None, escalation_reason="Nothing similar was found.")
+    html = resolution_body_html(refused)
+    assert "Nothing similar was found. Please escalate." in html and 'class="steps"' not in html
+    assert "badge" not in resolution_head_html(refused)
+    said_once = resolution_body_html(
+        answer(resolution=None, escalation_reason="Escalate to second-line support.")
+    )
     assert said_once.lower().count("escalate") == 1
 
 
 def test_resolution_says_when_the_model_was_not_used_or_a_service_is_down():
     result = answer(meta={"degraded": ["generation"]})
     result["resolution"]["mode"] = "extractive"
-    html = resolution_html(result)
+    html = resolution_body_html(result)
     assert "The language model was not used" in html and "reduced service: generation" in html
+
+
+def test_resolution_says_when_the_backup_model_answered():
+    html = resolution_body_html(answer(meta={"degraded": [], "failover_from": "openai/gpt-oss-20b"}))
+    assert "first-choice model (openai/gpt-oss-20b) did not answer" in html
+    assert "backup model" not in resolution_body_html(answer())
 
 
 def test_text_from_customers_and_the_model_cannot_inject_html():
     result = answer()
     result["resolution"]["summary"] = "<script>alert(1)</script>"
     result["resolution"]["steps"][0]["text"] = "<img src=x onerror=alert(1)>"
-    html = resolution_html(result)
+    html = resolution_body_html(result)
     assert "<script>" not in html and "<img" not in html and "&lt;script&gt;" in html
     nasty = [SOURCES[0] | {"title": "<b>bold</b>", "text": "<b>bold</b> body"}]
     assert "<b>bold" not in sources_html(nasty)
 
 
-def test_header_shows_status_and_the_model_that_answered():
-    html = header_html(("ok", "All services connected"), "llama3.2:3b", "v2")
-    assert "All services connected" in html and "llama3.2:3b" in html and "prompt v2" in html
-    bare = header_html(("bad", "The assistant cannot be reached"))
-    assert 'class="chip"' not in bare and "dot bad" in bare
+# ---- side menu ---------------------------------------------------------------------------------------
 
 
-def test_resolution_says_when_the_backup_model_answered():
-    html = resolution_html(answer(meta={"degraded": [], "failover_from": "openai/gpt-oss-20b"}))
-    assert "first-choice model (openai/gpt-oss-20b) did not answer" in html
-    assert "backup model" not in resolution_html(answer())
-
-
-def test_a_negative_tone_is_never_described_as_no_tone_found():
-    upset = TRIAGE | {"sentiment": {"label": "negative"}}  # the gateway sends the label only
-    html = facts_html(upset)
-    assert "Negative" in html and "No strong tone found" not in html
+def test_the_menu_shows_status_and_the_model_that_answered():
+    html = status_html(("ok", "All services connected"), "openai/gpt-oss-20b", 1.44)
+    assert "All services connected" in html and "openai/gpt-oss-20b" in html and "answered in 1.4 s" in html
+    bare = status_html(("bad", "The assistant cannot be reached"))
+    assert "<code>" not in bare and "dot bad" in bare

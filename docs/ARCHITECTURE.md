@@ -347,7 +347,7 @@ flowchart LR
 | 1. Notice | Realise that nothing known really fits | Similarity cut-off in the gateway. Measured weak spot: a new telecom problem that looks like an old one gets through. A second check (cross-encoder relevance) is built, off by default, and measured by `evals/eval_relevance_gate.py`. |
 | 2. Do not guess | Hand it to an expert | The gateway escalates, drafts nothing, still shows the closest sources |
 | 3. Human safety net | A person reviews every draft | Sources and similarity on the page, "not helpful", "none of the categories fits" |
-| 4. Learn | The expert's fix goes into the system | "Record the real fix" form on the page, or `POST /v1/tickets`. Searchable in seconds. |
+| 4. Learn | The expert's fix goes into the system | The Record a fix page, or `POST /v1/tickets`. Searchable in seconds. |
 | 5. Spot a trend | Similar unknown complaints mean a new kind of problem | Discovery job and class proposals |
 | 6. Raise an alarm | Tell someone the world has changed | Drift alerts in Prometheus |
 
@@ -504,7 +504,7 @@ into two clean groups at a similarity of 0.85, and only there (they merge at 0.8
 - **`scripts/health_check.py`**: one command that checks every service, sends a real complaint
   and an off-topic question through the gateway, and lists firing alerts.
 - **Logs**: one JSON line per request. The same request ID appears in every service it touched.
-- **CI** (GitHub Actions): code style, 252 fast tests, compose file, Prometheus config and alert tests.
+- **CI** (GitHub Actions): code style, 254 fast tests, compose file, Prometheus config and alert tests.
   21 more tests run against the live system.
 
 ---
@@ -548,14 +548,15 @@ into two clean groups at a similarity of 0.85, and only there (they merge at 0.8
 │   ├── generation/           prompt, answer checks, fallback
 │   ├── embedding/            the small models
 │   └── ingestion/            indexer, worker, new-class discovery
-├── ui/                       the agent web page (Streamlit): app.py, components.py (the HTML parts), style.css
+├── ui/                       the web pages (Streamlit): app.py (menu), page_*.py (one per page),
+│                             components.py (the HTML parts), api.py (gateway calls), style.css
 ├── data/
 │   ├── scenarios/            40 hand-written problem scenarios (the source of all data)
 │   └── generated/            tickets, articles, test complaints
 ├── scripts/                  generate_data, seed, migrate, demo, health_check, add_document, discover_classes
 ├── evals/                    eval_retrieval, eval_triage, eval_evolving, eval_answers, eval_relevance_gate, results/
 ├── infra/                    PostgreSQL schema, Prometheus rules, Grafana dashboard, CI workflow
-└── tests/                    252 fast tests, 21 tests against the live system
+└── tests/                    254 fast tests, 21 tests against the live system
 ```
 
 How a reviewer runs it (no API key needed):
@@ -594,7 +595,7 @@ Each part was built, measured, and changed where the measurement disagreed with 
 | Problem understanding | 15 | Section 1. "Already tried" handling, the agent as reviewer, escalation instead of guessing. |
 | Solution depth, production scale | 25 | Sections 3 to 5 and 9. Read and write paths, fallbacks, queue with sweep, cache versioning, capacity. |
 | Design decisions | 20 | Section 7, section 11, and DESIGN_DECISIONS.md with the measurements. |
-| Code | 25 | Section 10. 273 tests (252 fast, 21 against the running system), CI, typed request models, one-command run. |
+| Code | 25 | Section 10. 275 tests (254 fast, 21 against the running system), CI, typed request models, one-command run. |
 | Checkpoints, evals, monitoring | 15 | Section 8. Ten checkpoints, five evals, 17 tested alerts, a dashboard, a health check. |
 
 | Deliverable | Where |

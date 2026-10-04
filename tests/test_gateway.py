@@ -350,6 +350,28 @@ def test_an_agent_can_correct_the_category(setup):
     assert 'gateway_category_corrections_total{kind="none_of_these"}' in metrics
 
 
+def test_recent_feedback_can_be_listed_with_totals_and_the_masked_complaint(setup):
+    client, parts = setup
+    assert client.get("/v1/feedback", headers=KEY).json() == {
+        "totals": {"helpful": 0, "not_helpful": 0, "category_corrections": 0},
+        "items": [],
+    }
+    request_id = client.post("/v1/resolve", json={"complaint": COMPLAINT}, headers=KEY).json()["request_id"]
+    for helpful, extra in (
+        (True, {}),
+        (False, {"comment": "wrong fix", "correct_category": "billing_dispute"}),
+    ):
+        body = {"request_id": request_id, "helpful": helpful, **extra}
+        assert client.post("/v1/feedback", json=body, headers=KEY).status_code == 200
+    listed = client.get("/v1/feedback", headers=KEY).json()
+    assert listed["totals"] == {"helpful": 1, "not_helpful": 1, "category_corrections": 1}
+    newest = listed["items"][0]
+    assert newest["helpful"] is False and newest["comment"] == "wrong fix"
+    assert newest["correct_category"] == "billing_dispute"
+    assert newest["complaint"] == parts["store"].requests[0]["complaint_masked"]
+    assert client.get("/v1/feedback").status_code == 401  # a key is still needed
+
+
 def test_feedback_for_an_unknown_or_invalid_request_is_refused(setup):
     client, _ = setup
     unknown = {"request_id": str(uuid.uuid4()), "helpful": False}

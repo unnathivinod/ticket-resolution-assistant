@@ -159,6 +159,30 @@ class InMemoryStore:
         self.feedback.append((request_id, helpful, comment, edited, correct_category))
         return True
 
+    def recent_feedback(self, limit: int = 50) -> dict:
+        by_id = {record["request_id"]: record for record in self.requests}
+        items = [
+            {
+                "created_at": str(position),
+                "helpful": helpful,
+                "comment": comment,
+                "correct_category": correct_category,
+                "complaint": by_id[request_id]["complaint_masked"],
+                "category": ((by_id[request_id].get("triage") or {}).get("category") or {}).get("label"),
+                "escalated": by_id[request_id].get("escalated"),
+                "llm_model": by_id[request_id].get("llm_model"),
+            }
+            for position, (request_id, helpful, comment, _edited, correct_category) in enumerate(
+                self.feedback
+            )
+        ]
+        totals = {
+            "helpful": sum(item["helpful"] for item in items),
+            "not_helpful": sum(not item["helpful"] for item in items),
+            "category_corrections": sum(item["correct_category"] is not None for item in items),
+        }
+        return {"totals": totals, "items": items[::-1][:limit]}
+
     # ticket classes
     def taxonomy(self) -> dict:
         return {
@@ -186,6 +210,23 @@ class InMemoryStore:
 
     def save_article(self, article: dict) -> int:
         return self._save("kb", article)["version"]
+
+    def recorded_tickets(self, limit: int = 50) -> list[dict]:
+        rows = [row for row in self.documents["ticket"].values() if not row.get("scenario_id")]
+        rows.sort(key=lambda row: -row["updated_at"])
+        return [
+            {
+                "id": row["id"],
+                "subject": row["subject"],
+                "category": row["category"],
+                "product": row["product"],
+                "is_active": row["is_active"],
+                "created_at": str(row["updated_at"]),
+                "steps": len(row["resolution_steps"]),
+                "searchable": not self._behind(row),
+            }
+            for row in rows[:limit]
+        ]
 
     def retire_document(self, doc_type, doc_id) -> bool:
         row = self.documents[doc_type].get(doc_id)

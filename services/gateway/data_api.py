@@ -21,7 +21,7 @@ from __future__ import annotations
 import uuid
 from typing import Literal
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from prometheus_client import Counter
 from pydantic import BaseModel, Field
 
@@ -142,6 +142,20 @@ def add_data_routes(app: FastAPI, any_key, admin_key, log) -> None:
         ticket["id"] = body.id or f"T-{uuid.uuid4().hex[:10].upper()}"
         database(store.save_ticket, ticket)
         return accepted(request, "ticket", ticket["id"], "saved")
+
+    @app.get("/v1/tickets/recorded", tags=["documents"])
+    def recorded_tickets(
+        request: Request, limit: int = Query(50, ge=1, le=200), caller: str = Depends(admin_key)
+    ) -> dict:
+        """The fixes that second-line support recorded, newest first, with whether each is searchable yet."""
+        return {"items": database(request.app.state.store.recorded_tickets, limit)}
+
+    @app.get("/v1/feedback", tags=["feedback"])
+    def recent_feedback(
+        request: Request, limit: int = Query(50, ge=1, le=200), caller: str = Depends(any_key)
+    ) -> dict:
+        """The latest agent ratings (complaints are stored with personal details already masked)."""
+        return database(request.app.state.store.recent_feedback, limit)
 
     @app.put("/v1/kb/{article_id}", status_code=202, tags=["documents"])
     def save_article(

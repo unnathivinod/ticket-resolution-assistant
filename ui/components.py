@@ -1,8 +1,11 @@
-"""The parts of the agent page that are plain HTML: header, labels, sources and the resolution.
+"""The parts of the agent pages that are plain HTML: labels, sources, the resolution, the lists.
 
-Each function takes the gateway's answer and returns a string of HTML. They do not call
+Each function takes data from the gateway and returns a string of HTML. They do not call
 Streamlit or the network, so they can be tested on their own. Every piece of text that came
 from a customer, a ticket or the model goes through esc() before it is put into the page.
+
+Icons are drawn by ui/style.css (classes "ico ico-..."): Streamlit removes inline <svg> from
+the HTML it is given.
 """
 
 from __future__ import annotations
@@ -10,8 +13,6 @@ from __future__ import annotations
 from html import escape as esc
 
 SEVERITY_LEVELS = ["low", "medium", "high", "critical"]
-# Icons are drawn by ui/style.css: Streamlit removes inline <svg> from the HTML it is given.
-ICON_WARN = '<i class="ico warn-ico" aria-hidden="true"></i>'
 
 
 def pretty(label: str | None) -> str:
@@ -20,72 +21,89 @@ def pretty(label: str | None) -> str:
     return words[:1].upper() + words[1:]
 
 
+def icon(name: str) -> str:
+    return f'<i class="ico ico-{name}" aria-hidden="true"></i>'
+
+
 def notice(text: str, kind: str = "warn") -> str:
     """A one-line message inside a card. kind: warn (amber), bad (red) or info (blue)."""
-    return f'<div class="note {kind}">{ICON_WARN}<span>{esc(text)}</span></div>'
+    return f'<div class="note {kind}">{icon("warn")}<span>{esc(text)}</span></div>'
 
 
-def header_html(status: tuple[str, str], model: str | None = None, prompt_version: str | None = None) -> str:
-    """The bar at the top. status is (kind, text) where kind is ok, warn or bad."""
+# ---- side menu and page heading --------------------------------------------------------------
+
+
+def brand_html() -> str:
+    return (
+        f'<div class="brand"><div class="mark">{icon("chat")}</div>'
+        "<div><b>Support Assistant</b><span>Telecom support desk</span></div></div>"
+    )
+
+
+def menu_label_html(text: str) -> str:
+    return f'<div class="menu-label">{esc(text)}</div>'
+
+
+def status_html(status: tuple[str, str], model: str | None = None, seconds: float | None = None) -> str:
+    """The foot of the side menu. status is (kind, text) where kind is ok, warn or bad."""
     kind, text = status
-    labels = [model, f"prompt {prompt_version}" if prompt_version else None]
-    chips = "".join(f'<span class="chip">{esc(label)}</span>' for label in labels if label)
+    chips = [esc(model)] if model else []
+    if seconds is not None:
+        chips.append(f"answered in {seconds:.1f} s")
+    chips_html = "".join(f"<code>{chip}</code>" for chip in chips)
     return (
-        '<div class="topbar"><div class="brand">'
-        '<div class="mark" aria-hidden="true"></div>'
-        "<div><b>Support Ticket Resolution Assistant</b>"
-        "<span>Telecom support desk · first-line agent view</span></div></div>"
-        f'<div class="status"><span class="dot {kind}"></span><span>{esc(text)}</span>{chips}</div></div>'
+        f'<div class="menu-foot"><div><span class="dot {kind}"></span>{esc(text)}</div>'
+        f"<div>{chips_html}</div></div>"
     )
 
 
-def _bar(share: float) -> str:
+def page_title_html(title: str, hint: str = "") -> str:
+    return f'<div class="page-h"><h1>{esc(title)}</h1><span>{esc(hint)}</span></div>'
+
+
+# ---- what this is ------------------------------------------------------------------------------
+
+
+def _meter(share: float) -> str:
     width = max(0, min(100, round(share * 100)))
-    return f'<div class="bar"><i style="width:{width}%"></i></div>'
+    return f'<div class="meter"><i style="width:{width}%"></i></div>'
 
 
-def _confidence_fact(name: str, part: dict, note: str = "") -> str:
-    note_html = f'<div class="fact-s">{esc(note)}</div>' if note else ""
+def _tile(kind: str, name: str, icon_name: str, value: str, extra: str) -> str:
     return (
-        f'<div class="fact"><div class="fact-k">{name}</div>'
-        f'<div class="fact-top"><div class="fact-v">{esc(pretty(part["label"]))}</div>'
-        f'<div class="fact-n">{part["confidence"]:.0%}</div></div>'
-        f"{_bar(part['confidence'])}{note_html}</div>"
+        f'<div class="tile {kind}"><div class="tile-top"><div class="tile-k">{name}</div>'
+        f'<div class="tile-i">{icon(icon_name)}</div></div>'
+        f'<div class="tile-v">{esc(value)}</div>{extra}</div>'
     )
 
 
-def _severity_fact(severity: dict) -> str:
+def _confidence_tile(kind: str, name: str, icon_name: str, part: dict) -> str:
+    extra = _meter(part["confidence"]) + (
+        f'<div class="tile-s">{part["confidence"]:.0%} of similar tickets agree</div>'
+    )
+    return _tile(kind, name, icon_name, pretty(part["label"]), extra)
+
+
+def _severity_tile(severity: dict) -> str:
     level = severity["label"]
     position = SEVERITY_LEVELS.index(level) if level in SEVERITY_LEVELS else -1
     serious = position >= 2
     segments = "".join(
-        f'<i class="{"top" if i == position and serious else "on" if i <= position else ""}"></i>'
+        f'<i class="{"hot" if i == position and serious else "on" if i <= position else ""}"></i>'
         for i in range(len(SEVERITY_LEVELS))
     )
-    names = "".join(
-        f"<b>{pretty(name)}</b>" if i == position else f"<span>{pretty(name)}</span>"
-        for i, name in enumerate(SEVERITY_LEVELS)
-    )
     reasons = ", ".join(pretty(reason).lower() for reason in severity.get("reasons", []))
-    pill = (
-        f'<span class="pill {"hot" if serious else "calm"}">{esc(pretty(reasons))}</span>'
-        if reasons
-        else '<div class="fact-n plain">No urgency signals</div>'
+    extra = (
+        f'<div class="scale">{segments}</div>'
+        f'<div class="tile-s">{esc(pretty(reasons)) if reasons else "No urgency signals"}</div>'
     )
-    tone = "hot" if serious else "calm"
-    return (
-        '<div class="fact"><div class="fact-k">Severity</div>'
-        f'<div class="fact-top"><div class="fact-v {tone}">{esc(pretty(level))}</div>{pill}</div>'
-        f'<div class="scale {tone}">{segments}</div>'
-        f'<div class="scale-l {tone}">{names}</div></div>'
-    )
+    return _tile(f"t-sev {'hot' if serious else 'calm'}", "Severity", "alert", pretty(level), extra)
 
 
-def facts_html(triage: dict | None) -> str:
-    """The 'What this is' card: category, product, severity and sentiment."""
+def tiles_html(triage: dict | None) -> str:
+    """The four 'what this is' tiles: category, product, severity and sentiment."""
     if triage is None:
-        body = notice("Labels are unavailable right now. The search and the answer still work.")
-        return f'<section class="card pad"><div class="eyebrow">What this is</div>{body}</section>'
+        return notice("Labels are unavailable right now. The search and the answer still work.")
     sentiment = triage["sentiment"]
     tone = ", ".join(pretty(reason).lower() for reason in sentiment.get("reasons", []))
     # Only a neutral label may say that no tone was found. A negative one with no reason shows no note.
@@ -98,14 +116,23 @@ def facts_html(triage: dict | None) -> str:
             "Please label it manually."
         )
     return (
-        '<section class="card pad"><div class="eyebrow">What this is</div>'
-        + _confidence_fact("Category", triage["category"], "Agreement among the most similar past tickets")
-        + _confidence_fact("Product", triage["product"])
-        + _severity_fact(triage["severity"])
-        + '<div class="fact"><div class="fact-k">Sentiment</div><div class="fact-top">'
-        f'<div class="fact-v">{esc(pretty(sentiment["label"]))}</div>'
-        f'<div class="fact-n plain">{esc(tone_note)}</div></div></div>' + review + "</section>"
+        '<div class="tiles">'
+        + _confidence_tile("t-cat", "Category", "tag", triage["category"])
+        + _confidence_tile("t-prod", "Product", "wifi", triage["product"])
+        + _severity_tile(triage["severity"])
+        + _tile(
+            "t-sent",
+            "Sentiment",
+            "smile",
+            pretty(sentiment["label"]),
+            f'<div class="tile-s tone">{esc(tone_note)}</div>',
+        )
+        + "</div>"
+        + review
     )
+
+
+# ---- sources -----------------------------------------------------------------------------------
 
 
 def cited_ids(resolution: dict | None) -> set[str] | None:
@@ -121,7 +148,7 @@ def _chip(source_id: str) -> str:
 
 
 def sources_html(sources: list[dict], cited: set[str] | None = None) -> str:
-    """The 'Sources found' card. Each source opens to show its full text."""
+    """The 'Sources found' card. Each row opens to show the full text of the source."""
     rows = []
     for source in sources:
         is_article = source["source_type"] == "kb"
@@ -136,24 +163,38 @@ def sources_html(sources: list[dict], cited: set[str] | None = None) -> str:
         title, text = source["title"], source["text"]
         full = text if text.startswith(title) else f"{title}: {text}"
         rows.append(
-            f'<details class="src{dim}"><summary><div class="src-top">'
+            f'<details class="src{dim}"><summary>'
             f'<span class="chip{" kb" if is_article else ""}">{esc(source["id"])}</span>'
             f"<small>{'Article' if is_article else 'Past ticket'}</small>"
-            f'<span class="src-sc">{_bar(source["similarity"])}'
-            f'<span class="mono">{source["similarity"]:.2f}</span>{used}</span></div>'
-            f'<div class="src-t">{esc(title)}</div></summary>'
+            f'<span class="src-t">{esc(title)}</span>'
+            f'<span class="sim">{_meter(source["similarity"])}{source["similarity"]:.2f}</span>'
+            f"{used}</summary>"
             f'<div class="src-x">{esc(full)}</div></details>'
         )
-    count = f"{len(sources)} · best match first" if sources else "none"
-    body = "".join(rows) or '<div class="fact-s">No similar past case was found.</div>'
+    count = f"{len(sources)} · best match first · click a row to read it" if sources else "none"
+    body = "".join(rows) or '<div class="empty">No similar past case was found.</div>'
     return (
-        '<section class="card pad"><div class="card-top"><div class="eyebrow">Sources found</div>'
-        f'<div class="count">{count}</div></div><div class="srcs">{body}</div></section>'
+        '<section class="card srcs"><div class="card-h"><h2>Sources found</h2>'
+        f"<span>{count}</span></div>{body}</section>"
     )
 
 
-def _record(name: str, value: str) -> str:
-    return f'<div class="rec"><div class="rec-k">{name}</div><div class="rec-v">{value}</div></div>'
+# ---- suggested resolution ----------------------------------------------------------------------
+
+
+def resolution_head_html(result: dict | None) -> str:
+    """The title of the resolution card, with a badge that says how well the steps are backed."""
+    badge = ""
+    resolution = result["resolution"] if result else None
+    if resolution and resolution["steps"]:
+        total = len(resolution["steps"])
+        backed = sum(step["verified"] for step in resolution["steps"])
+        tone = "ok" if backed == total else "warn"
+        badge = (
+            f'<span class="badge {tone}">{icon("check" if backed == total else "warn")}'
+            f"{backed} of {total} steps backed by a source</span>"
+        )
+    return f'<div class="res-title"><h2>Suggested resolution</h2>{badge}</div>'
 
 
 def _step(step: dict) -> str:
@@ -165,20 +206,18 @@ def _step(step: dict) -> str:
     flags = "".join(f'<span class="flag">{note}</span>' for note in notes)
     chips = "".join(_chip(source_id) for source_id in step["citations"])
     return (
-        f'<li><div class="num">{int(step["n"])}</div><div><div class="step-t">{esc(step["text"])}</div>'
-        f'<div class="step-s"><span>From</span>{chips}{flags}</div></div></li>'
+        f'<li><div class="num">{int(step["n"])}</div><div><p>{esc(step["text"])}</p>'
+        f'<div class="from"><span>From</span>{chips}{flags}</div></div></li>'
     )
 
 
-def resolution_html(result: dict) -> str:
-    """The 'Suggested resolution' card: likely cause, what was already tried, and the steps."""
-    head = (
-        '<section class="card"><div class="res-head"><h2>Suggested resolution</h2></div>'
-        '<div class="res-body">'
-    )
+def resolution_body_html(result: dict) -> str:
+    """Inside the resolution card: likely cause, what was already tried, and the steps."""
     resolution = result["resolution"]
     degraded = result["meta"].get("degraded") or []
-    extra = notice("Running with reduced service: " + ", ".join(degraded) + ".") if degraded else ""
+    notes = []
+    if degraded:
+        notes.append(notice("Running with reduced service: " + ", ".join(degraded) + "."))
     if resolution is None or not resolution["steps"]:
         # Nothing similar enough was found, or the model judged the sources to be about another problem.
         summary = resolution["summary"] if resolution else ""
@@ -186,16 +225,8 @@ def resolution_html(result: dict) -> str:
         text = f"{summary} {reason}".strip()
         if "escalate" not in text.lower():
             text += " Please escalate."
-        return head + '<div class="notes">' + notice(text, "bad") + extra + "</div></div></section>"
+        return '<div class="res-notes">' + notice(text, "bad") + "".join(notes) + "</div>"
 
-    records = [_record("Likely cause", f'<p class="cause-t">{esc(resolution["summary"])}</p>')]
-    if resolution["already_tried"]:
-        tried = "".join(f'<div class="tried-i">{esc(item)}</div>' for item in resolution["already_tried"])
-        records.append(_record("Already tried", f'{tried}<div class="tried-n">Not suggested again</div>'))
-    steps = "".join(_step(step) for step in resolution["steps"])
-    records.append(_record("Recommended steps", f'<ol class="steps">{steps}</ol>'))
-
-    notes = []
     if first_choice := result["meta"].get("failover_from"):
         notes.append(
             notice(
@@ -216,5 +247,25 @@ def resolution_html(result: dict) -> str:
         notes.append(
             notice("Some steps are not backed by the cited sources. Check them before using this answer.")
         )
-    notes_html = f'<div class="notes">{"".join(notes)}{extra}</div>' if notes or extra else ""
-    return head + notes_html + "".join(records) + "</div></section>"
+    notes_html = f'<div class="res-notes">{"".join(notes)}</div>' if notes else ""
+
+    tried = ""
+    if resolution["already_tried"]:
+        pills = "".join(f'<span class="pill">{esc(item)}</span>' for item in resolution["already_tried"])
+        tried = f"<small>Already tried, not suggested again</small><div>{pills}</div>"
+    steps = "".join(_step(step) for step in resolution["steps"])
+    return (
+        f'{notes_html}<div class="res-body"><div class="cause"><div class="eyebrow">Likely cause</div>'
+        f"<p>{esc(resolution['summary'])}</p>{tried}</div>"
+        f'<ol class="steps">{steps}</ol></div>'
+    )
+
+
+def drafting_html() -> str:
+    """Shown in place of the resolution while the model is writing."""
+    lines = "".join(f'<div class="bone" style="width:{width}%"></div>' for width in (92, 78, 86, 64))
+    return (
+        '<section class="card res-wait"><div class="res-title"><h2>Suggested resolution</h2>'
+        '<span class="badge info">Drafting the fix ...</span></div>'
+        f'<div class="bones">{lines}</div></section>'
+    )

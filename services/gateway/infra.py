@@ -195,6 +195,28 @@ class PostgresStore:
             )
             return True
 
+    def recent_feedback(self, limit: int = 50) -> dict:
+        """The latest agent ratings with the complaint they were about, plus the totals."""
+        with self._connection() as conn:
+            totals = conn.execute(
+                """SELECT count(*) FILTER (WHERE helpful) AS helpful,
+                          count(*) FILTER (WHERE NOT helpful) AS not_helpful,
+                          count(*) FILTER (WHERE correct_category IS NOT NULL) AS category_corrections
+                   FROM feedback"""
+            ).fetchone()
+            rows = conn.execute(
+                """SELECT f.created_at, f.helpful, f.comment, f.correct_category,
+                          r.complaint_masked AS complaint,
+                          r.triage -> 'category' ->> 'label' AS category,
+                          r.escalated, r.llm_model
+                   FROM feedback f JOIN resolve_requests r USING (request_id)
+                   ORDER BY f.created_at DESC LIMIT %s""",
+                (limit,),
+            ).fetchall()
+        for row in rows:
+            row["created_at"] = row["created_at"].isoformat()
+        return {"totals": dict(totals), "items": rows}
+
     # ---- ticket classes -----------------------------------------------------------------------
 
     def taxonomy(self) -> dict[str, list[dict]]:
@@ -254,6 +276,25 @@ class PostgresStore:
                     ticket.get("scenario_id"),
                 ),
             )
+
+    def recorded_tickets(self, limit: int = 50) -> list[dict]:
+        """Fixes that people recorded through the API, newest first.
+
+        Every ticket of the generated dataset carries a scenario_id (its answer key for the
+        evals). A fix recorded by a person has none, which is how the two are told apart.
+        """
+        with self._connection() as conn:
+            rows = conn.execute(
+                """SELECT id, subject, category, product, is_active, created_at,
+                          jsonb_array_length(resolution_steps) AS steps,
+                          (indexed_at IS NOT NULL AND indexed_at >= updated_at) AS searchable
+                   FROM tickets WHERE scenario_id IS NULL
+                   ORDER BY created_at DESC LIMIT %s""",
+                (limit,),
+            ).fetchall()
+        for row in rows:
+            row["created_at"] = row["created_at"].isoformat()
+        return rows
 
     def save_article(self, article: dict) -> int:
         """Insert or update a knowledge-base article. Returns its new version number."""

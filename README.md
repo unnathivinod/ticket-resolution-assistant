@@ -81,7 +81,21 @@ Then open **http://localhost:8501** and press **Resolve**.
 | The complaint already in the box (broadband drops every evening) | Labels, five sources, and a fix in which each step cites its sources. "Restarted the router twice" is listed as already tried and is not suggested again. |
 | `I was charged twice this month` | A billing category this time, and a fix drawn from the billing tickets and articles. |
 | `What is the best recipe for chocolate cake?` | Not a telecom problem, so it should be stopped: no fix is drafted and escalation is recommended. (77% of off-topic questions are stopped this way.) |
-| Any problem the knowledge base does not cover | Escalation. Open **Second-line support: record the real fix**, save a fix, press Resolve again: the new fix is now used. |
+| Any problem the knowledge base does not cover | Escalation. Click **Record the real fix**, save a fix on the Record a fix page, go back and press Resolve again: the new fix is now used. |
+
+The menu on the left has one page for each kind of user:
+
+| Page | Who it is for | What it does |
+|---|---|---|
+| Resolve a complaint | Support agent | Labels, the drafted fix and the sources |
+| Feedback | Support agent | Rate the last answer: helpful or not, was the category right, an optional comment |
+| Record a fix | Expert | Record how a case was really solved, so the next agent gets it as a suggestion |
+| Monitoring | Engineer | Opens the Grafana dashboard |
+
+<p>
+  <img src="docs/images/page-feedback.png" alt="The Feedback page" width="49%">
+  <img src="docs/images/page-record-fix.png" alt="The Record a fix page" width="49%">
+</p>
 
 The same from the command line or as an API call:
 
@@ -132,8 +146,8 @@ No knowledge base covers everything. What matters is what the system does when i
 |---|---|
 | 1. Notice | A similarity cut-off stops complaints that match nothing known |
 | 2. Do not guess | Nothing is drafted. The closest sources are still shown |
-| 3. Human review | Every draft shows its sources. The agent can mark it "not helpful" or correct the category |
-| 4. Learn | "Record the real fix" on the page, or one API call. Searchable in seconds |
+| 3. Human review | Every draft shows its sources. On the Feedback page the agent can mark it "not helpful" or correct the category |
+| 4. Learn | The Record a fix page, or one API call. Searchable in seconds |
 | 5. Spot a trend | A script groups similar unknown complaints and proposes a new ticket class for a person to approve |
 | 6. Raise an alarm | Alerts for falling similarity, rising escalations and "none of the categories fits" |
 
@@ -146,7 +160,7 @@ No knowledge base covers everything. What matters is what the system does when i
 | Data that changes | New tickets, edited articles and new ticket classes go live through the API, by a queue with retries and a safety sweep. Old cached answers are dropped automatically |
 | Trust in the answer | Citations are checked against the sources, unsupported steps are flagged, "already tried" items the customer never said are removed |
 | Knowing it is healthy | 17 alert rules with their own tests, a 25-panel dashboard, one-command health check, one log line per request with the same ID in every service |
-| Knowing it is correct | Five eval scripts, 252 fast tests, 21 tests against the running system, and CI on every push |
+| Knowing it is correct | Five eval scripts, 254 fast tests, 21 tests against the running system, and CI on every push |
 
 ![The monitoring dashboard](docs/images/dashboard.png)
 

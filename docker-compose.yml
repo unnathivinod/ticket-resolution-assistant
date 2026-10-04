@@ -223,8 +223,10 @@ services:
     environment:
       GATEWAY_URL: http://gateway:8000
       GATEWAY_API_KEY: ${UI_API_KEY:-dev-local-key}
-      # Lets the page show the "record the real fix" form. Leave empty to hide the form.
+      # Lets the "Record a fix" page save fixes. Leave empty to switch it off.
       GATEWAY_ADMIN_API_KEY: ${UI_ADMIN_API_KEY-dev-admin-key}
+      # Where the "Monitoring" menu item sends the browser.
+      GRAFANA_PUBLIC_URL: http://localhost:${GRAFANA_PORT:-3000}
     ports:
       - "127.0.0.1:${UI_PORT:-8501}:8501"
     depends_on:

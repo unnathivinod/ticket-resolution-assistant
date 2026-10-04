@@ -114,7 +114,9 @@ curl -X POST http://localhost:8000/v1/tickets \
 | An article is edited | `PUT /v1/kb/{id}` | Same path. The new version replaces the old one in the index, with no gap |
 | A fix is outdated | `DELETE /v1/documents/{id}` | Hidden from search, kept in PostgreSQL so old answers can still be traced |
 | A new ticket class | `POST /v1/taxonomy` | Classes are rows in a table. Triage learns the class from the tickets labelled with it |
-| An agent sees a wrong category | Dropdown under the answer | Stored with the feedback. "None of the categories fits" feeds the discovery job |
+| An agent sees a wrong category | The Feedback page | Stored with the feedback. "None of the categories fits" feeds the discovery job |
+| Someone wants to see what agents said | `GET /v1/feedback` | The latest ratings with totals. Complaints are shown with personal details already masked |
+| Someone wants to see what experts recorded | `GET /v1/tickets/recorded` | Each recorded fix and whether it is searchable yet |
 | Nobody noticed a new kind of problem yet | `python scripts/discover_classes.py` | Groups similar flagged complaints and proposes a class for a person to approve |
 
 The same from a file, with a wait until it is searchable:
