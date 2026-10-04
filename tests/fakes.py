@@ -73,9 +73,8 @@ class InProcessRetrieval:
 class FakeLLM:
     """Behaves like LLMClient, but returns prepared replies (or raises prepared errors) instantly."""
 
-    model = "fake-llm"
-
-    def __init__(self, *replies) -> None:
+    def __init__(self, *replies, model: str = "fake-llm") -> None:
+        self.model = model
         self._replies = list(replies)
         self.calls: list[dict] = []
         self.is_ready = True

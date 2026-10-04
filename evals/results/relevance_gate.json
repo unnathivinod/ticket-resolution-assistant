@@ -1,0 +1,92 @@
+{
+  "spread": {
+    "known": {
+      "p10": 0.0001,
+      "p25": 0.0005,
+      "p50": 0.0037,
+      "p75": 0.038
+    },
+    "new_class": {
+      "p10": 0.0001,
+      "p25": 0.0004,
+      "p50": 0.00215,
+      "p75": 0.0074
+    },
+    "off_topic": {
+      "p10": 0.0,
+      "p25": 0.0,
+      "p50": 5e-05,
+      "p75": 0.0111
+    }
+  },
+  "alone": [
+    {
+      "budget": 0.01,
+      "threshold": 0.0,
+      "known": 0.0,
+      "new_class": 0.0,
+      "off_topic": 0.0
+    },
+    {
+      "budget": 0.02,
+      "threshold": 0.0,
+      "known": 0.0,
+      "new_class": 0.0,
+      "off_topic": 0.0
+    },
+    {
+      "budget": 0.05,
+      "threshold": 0.0001,
+      "known": 0.022,
+      "new_class": 0.025,
+      "off_topic": 0.5
+    },
+    {
+      "budget": 0.1,
+      "threshold": 0.0001,
+      "known": 0.022,
+      "new_class": 0.025,
+      "off_topic": 0.5
+    },
+    {
+      "budget": 0.2,
+      "threshold": 0.0003,
+      "known": 0.178,
+      "new_class": 0.125,
+      "off_topic": 0.6
+    }
+  ],
+  "with_similarity": [
+    {
+      "threshold": 0.0,
+      "known": 0.014,
+      "new_class": 0.0,
+      "off_topic": 0.767
+    },
+    {
+      "threshold": 0.0,
+      "known": 0.014,
+      "new_class": 0.0,
+      "off_topic": 0.767
+    },
+    {
+      "threshold": 0.0001,
+      "known": 0.036,
+      "new_class": 0.025,
+      "off_topic": 0.767
+    },
+    {
+      "threshold": 0.0001,
+      "known": 0.036,
+      "new_class": 0.025,
+      "off_topic": 0.767
+    },
+    {
+      "threshold": 0.0003,
+      "known": 0.186,
+      "new_class": 0.125,
+      "off_topic": 0.767
+    }
+  ],
+  "useful": false
+}

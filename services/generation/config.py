@@ -11,7 +11,19 @@ class Settings(BaseSettings):
     llm_base_url: str = "http://host.docker.internal:11434/v1"
     llm_model: str = "llama3.2:3b"
     llm_api_key: str = "not-needed"
-    llm_timeout_seconds: float = 180.0
+    llm_timeout_seconds: float = 180.0  # a hosted model answers in seconds: 30 is plenty there
+    # Only for hosted models that "think" before they answer (for example gpt-oss on Groq).
+    llm_reasoning_effort: str = ""  # low | medium | high. Empty = the setting is not sent
+    llm_extra_tokens: int = 0  # extra output room, because the thinking counts as output
+    llm_rate_limit_wait_seconds: float = 10.0  # on "too many requests": wait this long at most, then move on
+
+    # A backup model, asked only when the first one fails (unreachable, rate limited, or two
+    # unusable answers). Empty = no backup. Typical use: a fast hosted model first, local Ollama
+    # as the backup. If both fail, the steps are quoted from the best source as before.
+    fallback_llm_base_url: str = ""
+    fallback_llm_model: str = ""
+    fallback_llm_api_key: str = "not-needed"
+    fallback_llm_timeout_seconds: float = 180.0
     temperature: float = 0.1  # low = consistent, factual answers
     max_output_tokens: int = 400
 

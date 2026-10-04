@@ -4,14 +4,14 @@ Settings: {"neighbours": 25, "similarity_power": 4, "min_similarity": 0.75, "min
 
 | Metric | Value | Note |
 |---|---|---|
-| Category accuracy | 0.711 | 'unknown' counts as wrong |
-| Category accuracy, best guess | 0.756 | ignoring the 'unknown' rule |
-| Category macro-F1 | 0.730 | rare classes count as much as common ones |
-| Product accuracy | 0.783 |  |
-| Severity accuracy | 0.594 | exact level |
-| Severity within one level | 0.933 |  |
-|   part 1: baseline severity | 0.706 | from similar tickets |
-|   part 2: urgency signal | 0.678 | which urgency signal, or none |
+| Category accuracy | 0.717 | 'unknown' counts as wrong |
+| Category accuracy, best guess | 0.761 | ignoring the 'unknown' rule |
+| Category macro-F1 | 0.734 | rare classes count as much as common ones |
+| Product accuracy | 0.789 |  |
+| Severity accuracy | 0.639 | exact level |
+| Severity within one level | 0.944 |  |
+|   part 1: baseline severity | 0.717 | from similar tickets |
+|   part 2: urgency signal | 0.639 | which urgency signal, or none |
 | Sentiment accuracy | 0.828 |  |
 | Sentiment macro-F1 | 0.851 |  |
 | Known complaints flagged unknown | 0.078 | lower is better |

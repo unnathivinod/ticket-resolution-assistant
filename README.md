@@ -29,6 +29,23 @@ All numbers come from the scripts in `evals/`, run on a laptop CPU with `bge-sma
 
 The weak spots are written up as plainly as the strong ones, in section 13 of the architecture document.
 
+The same 56 complaints were then run through a larger hosted model (`openai/gpt-oss-20b` on Groq,
+optional, with the local model as its backup):
+
+| On the same complaints | Local `llama3.2:3b` | Hosted `gpt-oss-20b` |
+|---|---|---|
+| Known problems, right answer (of 20) | 11, plus 3 mixed with another problem | 15 |
+| Known problems, wrong answer | 6 | 3 |
+| When the search had found the right source (15 of 20) | 11 right, 3 mixed, 1 wrong | 15 of 15 right |
+| When the search had missed it (5 of 20) | 5 wrong answers | 3 wrong, 2 refused |
+| Problems with no fix in the knowledge base (6) | 6 wrong answers | 3 wrong, 3 refused |
+| Off-topic questions that reached the model (7 of 30) | 7 answered | 7 refused |
+| Typical time per drafted answer | 31 s | 1.4 s |
+
+What it shows: with the larger model, every remaining wrong answer on known problems is a search
+miss. The model is no longer the weak link; the search is. One run each, small groups: read the
+table as a direction, not as exact rates.
+
 ## Run it
 
 Requirements: Docker Desktop and [Ollama](https://ollama.com/download).
@@ -61,6 +78,29 @@ Then open **http://localhost:8501**, paste a complaint and press **Resolve**.
 | Prometheus (numbers and alerts) | http://localhost:9090/alerts |
 
 If a port is already used on your machine, change it in `.env` (for example `REDIS_PORT=6380`).
+
+### Choosing the language model
+
+Out of the box the answers are written by `llama3.2:3b` running in Ollama on your machine: no key,
+no cost, about half a minute per answer on a laptop CPU.
+
+The model is a setting, not code. Any provider with an OpenAI-compatible API works, and a **backup
+model** can be named that is asked only when the first one fails:
+
+```
+first model (for example a hosted one, a few seconds)
+   └─ unreachable, rate limited, or two unusable replies
+        └─ backup model (for example local Ollama)
+             └─ fails too
+                  └─ the steps are quoted from the best matching source, no model
+```
+
+To put a hosted model first, copy the commented block in `.env.example` into `.env`, paste your
+own key and run `docker compose up -d`. The top bar of the web page shows which model wrote each
+answer, and says so when the backup had to step in. With no key nothing changes: Ollama answers.
+
+What leaves the machine with a hosted model: the complaint (personal details already masked) and
+the three sources shown to the model. Nothing else.
 
 ## Try it
 
@@ -99,6 +139,25 @@ best matching source, so the demo still works.
 | 7. Draft | Cited, checked resolution | Drafting down: return the sources, recommend escalation |
 | 8. Record | Request, answer and timings go to the `resolve_requests` table; agent feedback to `feedback` | Database down: still answer, count the error |
 
+## When a complaint is new
+
+No knowledge base covers everything. What matters is what the system does when it has no fix,
+and that it learns from the case. Every step of that loop is in this project:
+
+| Step | What should happen | Where it is |
+|---|---|---|
+| 1. Notice | Realise that nothing known really fits | Similarity cut-off in the gateway (stops 77% of off-topic questions). Measured weak spot: a new telecom problem that looks like an old one gets through. A second check is built and measured by `evals/eval_relevance_gate.py`. |
+| 2. Do not guess | Hand it to an expert instead of inventing a fix | The gateway escalates, drafts nothing, and still shows the closest sources |
+| 3. Human safety net | A person reviews every draft | The page shows each step's sources and similarity. The agent can mark "not helpful" or "none of the categories fits". |
+| 4. Learn | The expert's fix goes into the system | "Record the real fix" form on the page, or `POST /v1/tickets`. Searchable in seconds, nothing retrained. |
+| 5. Spot a trend | Many similar unknown complaints mean a new kind of problem | `scripts/discover_classes.py` groups them and proposes a class for a person to approve |
+| 6. Raise an alarm | Tell someone the world has changed | Alerts for falling similarity, rising escalations and "none of the categories fits" |
+
+**new complaint → escalate → expert solves it → system learns it → the next customer gets the answer**
+
+To see it: ask about something the knowledge base does not cover, open "Second-line support:
+record the real fix" under the answer, save the fix, and press Resolve again.
+
 ## New data and new ticket classes
 
 Tickets, articles and ticket classes change while the system is running. Nothing is retrained
@@ -121,6 +180,13 @@ curl -X POST http://localhost:8000/v1/tickets \
 | A new ticket class | `POST /v1/taxonomy` | Classes are rows in a table. Triage learns the class from the tickets labelled with it |
 | An agent sees a wrong category | Dropdown under the answer | Stored with the feedback. "None of the categories fits" feeds the discovery job |
 | Nobody noticed a new kind of problem yet | `python scripts/discover_classes.py` | Groups similar flagged complaints and proposes a class for a person to approve |
+
+The same from a file, with a wait until it is searchable:
+
+```bash
+docker compose run --rm tools python scripts/add_document.py data/examples/kb_broken_router.json
+docker compose run --rm tools python scripts/add_document.py --retire KB-900
+```
 
 These calls need an **admin key** (`ADMIN_API_KEYS` in `.env`). The agent key used by the web page
 can read and give feedback but cannot change data.
@@ -192,6 +258,19 @@ One experiment is kept behind a setting: `LLM_MATCH_CHECK=true` makes the model 
 best source is about the same problem before it writes any step. With `llama3.2:3b` it then refused
 every complaint, so it is off. It is there to be tried again with a larger model.
 
+With a hosted model on a free plan, add `--pause 20` so the run stays under the per-minute limit.
+Each model writes its own result file (`answers_v2.md`, `answers_v2_openai-gpt-oss-20b.md`).
+
+## A second "does it fit?" check (evals)
+
+```bash
+docker compose run --rm tools python evals/eval_relevance_gate.py   # about 3 minutes, no language model
+```
+
+Scores the best source for each of the 430 test complaints with a cross-encoder and reports how
+many new-class and off-topic complaints it would stop, for a given share of answerable complaints
+stopped by mistake. The check is off (`MIN_RELEVANCE=0`) unless this eval says it is worth its cost.
+
 ## Is it healthy? (monitoring)
 
 ```bash
@@ -206,7 +285,7 @@ the gateway, checks that new data is not stuck, and lists any alert that is firi
 | Where | What you see |
 |---|---|
 | http://localhost:3000 | One dashboard with 25 panels in five rows: up and fast enough, answer quality, drift, language model and cache, new data |
-| http://localhost:9090/alerts | 16 alert rules, each with what is wrong and what to do first |
+| http://localhost:9090/alerts | 17 alert rules, each with what is wrong and what to do first |
 | `docker compose logs gateway` | One JSON line per request. The same `request_id` appears in every service the request touched |
 
 What the alerts watch, in plain words:
@@ -241,10 +320,10 @@ docker compose run --rm tools pytest -m integration   # checks against the runni
 | Gateway | API keys, rate limit, PII masking, cache, checkpoints, audit log, feedback, data and class endpoints |
 | Triage | Category, product, severity, sentiment, with reasons, and "unknown" when unsure |
 | Retrieval | Hybrid semantic and keyword search over tickets and knowledge-base articles |
-| Generation | Cited answer drafted by a local LLM, checked against its sources, with a no-model fallback |
+| Generation | Cited answer drafted by an LLM (local by default, hosted optional, with a backup model), checked against its sources, with a no-model fallback |
 | Embedding | The small models, in one place |
 | Ingestion worker | New and edited documents reach the search index in seconds, with retries and a safety sweep |
 | Web page | What the support agent uses |
-| Monitoring | Prometheus with 16 tested alert rules, a Grafana dashboard, a one-command health check |
+| Monitoring | Prometheus with 17 tested alert rules, a Grafana dashboard, a one-command health check |
 | Evals | Search, labels, new data and classes, final answers |
-| Tests and CI | 210 fast tests, 21 live tests, GitHub Actions on every push |
+| Tests and CI | 252 fast tests, 21 live tests, GitHub Actions on every push |

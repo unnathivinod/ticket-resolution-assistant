@@ -128,6 +128,13 @@ services:
       GENERATION_LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:11434/v1}
       GENERATION_LLM_MODEL: ${LLM_MODEL:-llama3.2:3b}
       GENERATION_LLM_API_KEY: ${LLM_API_KEY:-not-needed}
+      GENERATION_LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-180}
+      GENERATION_LLM_REASONING_EFFORT: ${LLM_REASONING_EFFORT:-}
+      GENERATION_LLM_EXTRA_TOKENS: ${LLM_EXTRA_TOKENS:-0}
+      # Optional backup model, asked only when the first one fails. Empty = no backup.
+      GENERATION_FALLBACK_LLM_BASE_URL: ${LLM_FALLBACK_BASE_URL:-}
+      GENERATION_FALLBACK_LLM_MODEL: ${LLM_FALLBACK_MODEL:-}
+      GENERATION_FALLBACK_LLM_API_KEY: ${LLM_FALLBACK_API_KEY:-not-needed}
       GENERATION_MATCH_CHECK: ${LLM_MATCH_CHECK:-false}
     extra_hosts:
       # Lets the container reach Ollama running on the host machine (needed on Linux).
@@ -157,6 +164,7 @@ services:
       GATEWAY_DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       GATEWAY_API_KEYS: ${API_KEYS:-dev-local-key}
       GATEWAY_ADMIN_API_KEYS: ${ADMIN_API_KEYS:-dev-admin-key}
+      GATEWAY_MIN_RELEVANCE: ${MIN_RELEVANCE:-0}
       GATEWAY_RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-30}
     ports:
       - "127.0.0.1:${GATEWAY_PORT:-8000}:8000"
@@ -215,6 +223,8 @@ services:
     environment:
       GATEWAY_URL: http://gateway:8000
       GATEWAY_API_KEY: ${UI_API_KEY:-dev-local-key}
+      # Lets the page show the "record the real fix" form. Leave empty to hide the form.
+      GATEWAY_ADMIN_API_KEY: ${UI_ADMIN_API_KEY-dev-admin-key}
     ports:
       - "127.0.0.1:${UI_PORT:-8501}:8501"
     depends_on:

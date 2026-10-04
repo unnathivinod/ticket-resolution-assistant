@@ -1,0 +1,7 @@
+{
+  "id": "KB-900",
+  "title": "Router physically damaged or broken",
+  "body": "# Router physically damaged or broken\n\n## Symptoms\nCustomers typically say things like:\n- My router broke into two pieces.\n- I dropped the router and the casing cracked.\n- The router fell off the shelf and will not power on.\n- The power socket on the router snapped off.\n\n## Likely cause\nThe router has physical damage. It cannot be repaired remotely and must be replaced.\n\n## Resolution steps\n1. Confirm that the router is physically damaged and tell the customer not to use it or open it.\n2. Check whether the damage is covered by the equipment warranty or needs a replacement fee, and tell the customer before ordering.\n3. Order a replacement router with next-day delivery and give the customer the order reference.\n4. If the customer cannot wait, offer a temporary mobile data add-on or suggest using their phone as a hotspot until the replacement arrives.\n5. Arrange return or recycling of the damaged router.\n\n## When to escalate\nEscalate to the equipment team if no replacement stock is available, or if the customer reports a burning smell or exposed wiring.\n",
+  "category": "device_hardware",
+  "product": "broadband"
+}

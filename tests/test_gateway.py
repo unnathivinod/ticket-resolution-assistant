@@ -66,10 +66,15 @@ class FakeTriage(FakeService):
 
 class FakeRetrieval(FakeService):
     similarity = 0.9
+    relevance = 0.9
 
     def search(self, query, top_k_tickets=3, top_k_kb=2, **options):
         self._call(query, top_k_tickets, top_k_kb)
-        return {"results": [source("T-000001", "ticket", self.similarity), source("KB-001", "kb", 0.8)]}
+        self.options = options
+        results = [source("T-000001", "ticket", self.similarity), source("KB-001", "kb", 0.8)]
+        if options.get("score_relevance"):
+            results = [{**result, "relevance": self.relevance} for result in results]
+        return {"results": results}
 
 
 class FakeGeneration(FakeService):
@@ -236,6 +241,27 @@ def test_no_confident_match_means_no_answer_is_drafted(setup):
     assert parts["generation"].calls == []
     assert parts["store"].requests[0]["escalated"] is True
     assert parts["cache"].data == {}
+
+
+def test_the_relevance_check_is_off_by_default(setup):
+    client, parts = setup
+    body = resolve(client)
+    assert parts["retrieval"].options == {"score_relevance": False}
+    assert body["meta"]["top_relevance"] is None and body["meta"]["confident_match"] is True
+
+
+def test_a_similar_looking_but_irrelevant_source_can_be_stopped_by_the_second_check():
+    # Similarity says "close" (0.9), the cross-encoder says "not about this" (0.05).
+    triage, retrieval, generation = FakeTriage(), FakeRetrieval(), FakeGeneration()
+    retrieval.relevance = 0.05
+    settings = Settings(api_keys="test-key", min_similarity=0.7, min_relevance=0.3)
+    orchestrator = Orchestrator(triage, retrieval, generation, InMemoryCache(), InMemoryStore(), settings)
+    response = orchestrator.resolve(COMPLAINT)
+    assert response["resolution"] is None and response["escalate"] is True
+    assert response["meta"]["top_relevance"] == 0.05 and generation.calls == []
+
+    retrieval.relevance = 0.8  # the cross-encoder agrees: an answer is drafted
+    assert orchestrator.resolve(COMPLAINT, use_cache=False)["resolution"] is not None
 
 
 def test_the_gateway_still_answers_when_triage_is_down(setup):

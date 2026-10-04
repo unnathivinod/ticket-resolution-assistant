@@ -140,7 +140,10 @@ class Orchestrator:
         stage = time.perf_counter()
         try:
             found = self._retrieval.search(
-                masked, top_k_tickets=settings.top_k_tickets, top_k_kb=settings.top_k_kb
+                masked,
+                top_k_tickets=settings.top_k_tickets,
+                top_k_kb=settings.top_k_kb,
+                score_relevance=settings.min_relevance > 0,
             )["results"]
         except ServiceError as error:
             raise SearchUnavailableError(str(error)) from error
@@ -149,6 +152,10 @@ class Orchestrator:
         top_similarity = max((result["similarity"] for result in found), default=0.0)
         TOP_SIMILARITY.observe(top_similarity)
         confident = top_similarity >= settings.min_similarity
+        top_relevance = None
+        if settings.min_relevance > 0:
+            top_relevance = max((result.get("relevance") or 0.0 for result in found), default=0.0)
+            confident = confident and top_relevance >= settings.min_relevance
 
         response = {
             "request_id": request_id,
@@ -165,7 +172,9 @@ class Orchestrator:
                 "degraded": degraded,
                 "confident_match": confident,
                 "top_similarity": round(top_similarity, 4),
+                "top_relevance": top_relevance,
                 "model": None,
+                "failover_from": None,
                 "prompt_version": None,
                 "index_version": index_version,
             },
@@ -206,6 +215,7 @@ class Orchestrator:
                     response["escalate"] = answer["escalate"]
                     response["escalation_reason"] = answer["escalation_reason"]
                     response["meta"]["model"] = answer["model"]
+                    response["meta"]["failover_from"] = answer.get("failover_from")
                     response["meta"]["prompt_version"] = answer["prompt_version"]
                 except ServiceError:
                     degraded.append("generation")

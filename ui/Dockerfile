@@ -3,7 +3,8 @@
 FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app
 
 WORKDIR /app
 
@@ -13,6 +14,7 @@ COPY ui/requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
 COPY --chown=appuser ui ui
+COPY --chown=appuser ui/config.toml .streamlit/config.toml
 
 USER appuser
 EXPOSE 8501

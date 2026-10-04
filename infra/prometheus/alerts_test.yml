@@ -131,6 +131,31 @@ tests:
               summary: "More than 20% of answers are quoted from sources instead of drafted by the model"
               action: "See the 'Why the model was not used' panel. Check that Ollama is running and the model is pulled."
 
+  # The hosted model fails once a minute for half an hour, so the backup model keeps being asked.
+  - interval: 1m
+    input_series:
+      - series: 'generation_model_failovers_total{reason="llm_unavailable"}'
+        values: "0+1x40"
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: BackupModelInUse
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "The first-choice language model keeps failing and the backup model is answering"
+              action: "Agents still get answers, but slower. Check the provider's status, the API key and its rate limits in the generation service log."
+
+  # A single failed call long ago must not alert.
+  - interval: 1m
+    input_series:
+      - series: 'generation_model_failovers_total{reason="llm_unavailable"}'
+        values: "0 1 1x60"
+    alert_rule_test:
+      - eval_time: 45m
+        alertname: BackupModelInUse
+        exp_alerts: []
+
   # Agents: 6 of 12 ratings in the last hours were "not helpful". Only 3 ratings would be too few to alert.
   - interval: 10m
     input_series:

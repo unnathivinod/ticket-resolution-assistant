@@ -436,7 +436,7 @@
       "id": 10,
       "type": "timeseries",
       "title": "Why the model was not used",
-      "description": "llm_unavailable, invalid_output or llm_disabled.",
+      "description": "llm_unavailable, invalid_output or llm_disabled. 'backup model asked' = the first model failed and the backup model was tried.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -479,6 +479,15 @@
           "expr": "sum by (reason) (rate(generation_fallbacks_total[5m])) * 60",
           "legendFormat": "{{reason}}",
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(rate(generation_model_failovers_total[5m])) * 60",
+          "legendFormat": "backup model asked",
+          "refId": "B"
         }
       ]
     },

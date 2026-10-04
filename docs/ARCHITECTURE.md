@@ -89,7 +89,7 @@ flowchart TB
     end
 
     subgraph OBS["Monitoring"]
-        PROM["Prometheus<br/>16 alert rules"] --> GRAF["Grafana dashboard"]
+        PROM["Prometheus<br/>17 alert rules"] --> GRAF["Grafana dashboard"]
     end
 
     GW --> TR
@@ -186,7 +186,7 @@ Seven small programs of our own, plus ready-made infrastructure.
 | **Gateway** | 8000 | The only front door. API keys (agent and admin), rate limit, PII masking, cache, runs the steps in order, checkpoints, audit log, feedback, data and class endpoints. | Triage, Retrieval, Generation, Redis, PostgreSQL |
 | **Triage** | 8001 | Category, product, severity and sentiment, each with a reason or a confidence. Says "unknown" when unsure. | Retrieval, Embedding |
 | **Retrieval** | 8002 | Finds the most similar tickets and KB sections (hybrid search). | Embedding, Qdrant |
-| **Generation** | 8003 | Builds the prompt, calls the LLM, checks the answer, falls back to quoting the source if the model fails. | Ollama, Embedding |
+| **Generation** | 8003 | Builds the prompt, calls the LLM, checks the answer. If the model fails it asks the backup model (when one is set), and if that fails too it quotes the source. | Ollama (or a hosted model), Embedding |
 | **Embedding** | 8004 | The only place the small models live: text to dense vector, text to BM25 vector. | none |
 | **Ingestion worker** | 8005 (metrics) | Keeps the search index in step with PostgreSQL. Retries, dead-letter list, safety sweep. | Redis, PostgreSQL, Embedding, Qdrant |
 | **Web page** | 8501 | Paste a complaint, see labels, the drafted fix, its sources, and give feedback. | Gateway |
@@ -325,6 +325,32 @@ admin --> gateway --> PostgreSQL (saved first)
 | Cached answers | The worker raises an index version that is part of every cache key, so an answer cached before a change is not served after it. |
 | A new embedding model | Services search an alias. A new collection is built in the background and the alias is switched. |
 
+**When a complaint is new: the whole loop**
+
+```mermaid
+flowchart LR
+    A["New complaint"] --> B{"Anything similar<br/>enough?"}
+    B -- "no" --> C["Escalate<br/>no draft"]
+    B -- "yes" --> D["Draft with sources"]
+    D --> E["Agent reviews"]
+    E -- "wrong or missing" --> C
+    C --> F["Expert solves it"]
+    F --> G["Record the fix<br/>(page form or API)"]
+    G --> H["Searchable in seconds"]
+    H --> A
+    E -- "none of the<br/>categories fits" --> I["Discovery job<br/>proposes a class"]
+    I --> J["Person approves"]
+```
+
+| Step | What should happen | Where it is |
+|---|---|---|
+| 1. Notice | Realise that nothing known really fits | Similarity cut-off in the gateway. Measured weak spot: a new telecom problem that looks like an old one gets through. A second check (cross-encoder relevance) is built, off by default, and measured by `evals/eval_relevance_gate.py`. |
+| 2. Do not guess | Hand it to an expert | The gateway escalates, drafts nothing, still shows the closest sources |
+| 3. Human safety net | A person reviews every draft | Sources and similarity on the page, "not helpful", "none of the categories fits" |
+| 4. Learn | The expert's fix goes into the system | "Record the real fix" form on the page, or `POST /v1/tickets`. Searchable in seconds. |
+| 5. Spot a trend | Similar unknown complaints mean a new kind of problem | Discovery job and class proposals |
+| 6. Raise an alarm | Tell someone the world has changed | Drift alerts in Prometheus |
+
 **New classes**
 
 1. Classes are **rows in a `taxonomy` table**. Adding one is an API call.
@@ -373,7 +399,7 @@ The full list, with alternatives and the measurements behind them, is in
 |---|---|---|
 | Search | Hybrid, dense weighted 3x, no reranker | Measured. Matches the best accuracy and still finds exact codes. The reranker cost 900 ms for no gain. |
 | Triage | Nearest-neighbour vote plus example-based signals | No retraining when classes change. Every label comes with a reason. |
-| LLM | `llama3.2:3b` through an OpenAI-compatible API | Free, runs for a reviewer with no key. A hosted model is a change of three settings. |
+| LLM | `llama3.2:3b` through an OpenAI-compatible API | Free, runs for a reviewer with no key. A hosted model is a change of three settings, and it can be put first with Ollama as its backup (README, 'Choosing the language model'). |
 | Model output | JSON constrained to a schema | Always parseable, and source IDs cannot be invented. |
 | No model available | Quote the best source | The system never returns nothing. |
 | Read path and write path | Separate: synchronous answers, queued indexing | Heavy indexing must never slow an agent down. |
@@ -471,14 +497,14 @@ into two clean groups at a similarity of 0.85, and only there (they merge at 0.8
 | Has the world changed? | Similarity of the closest match, share escalated, share triage cannot label | Half of recent complaints are below 0.75 similarity. |
 | Is new data arriving? | Queue length, time since the last indexed document, dead letters | Work is waiting and nothing was indexed for 10 minutes. |
 
-- **16 alert rules**, each with what is wrong and what to do first. They have unit tests
+- **17 alert rules**, each with what is wrong and what to do first. They have unit tests
   (`promtool test rules`), run in CI.
 - **One Grafana dashboard**, built from a short Python list. A test checks every query against
   the metric names in the code, so a renamed metric cannot leave a silently empty panel.
 - **`scripts/health_check.py`**: one command that checks every service, sends a real complaint
   and an off-topic question through the gateway, and lists firing alerts.
 - **Logs**: one JSON line per request. The same request ID appears in every service it touched.
-- **CI** (GitHub Actions): code style, 210 fast tests, compose file, Prometheus config and alert tests.
+- **CI** (GitHub Actions): code style, 252 fast tests, compose file, Prometheus config and alert tests.
   21 more tests run against the live system.
 
 ---
@@ -521,14 +547,14 @@ into two clean groups at a similarity of 0.85, and only there (they merge at 0.8
 │   ├── generation/           prompt, answer checks, fallback
 │   ├── embedding/            the small models
 │   └── ingestion/            indexer, worker, new-class discovery
-├── ui/                       the agent web page (Streamlit)
+├── ui/                       the agent web page (Streamlit): app.py, components.py (the HTML parts), style.css
 ├── data/
 │   ├── scenarios/            40 hand-written problem scenarios (the source of all data)
 │   └── generated/            tickets, articles, test complaints
-├── scripts/                  generate_data, seed, migrate, demo, health_check, discover_classes
-├── evals/                    eval_retrieval, eval_triage, eval_evolving, eval_answers, results/
+├── scripts/                  generate_data, seed, migrate, demo, health_check, add_document, discover_classes
+├── evals/                    eval_retrieval, eval_triage, eval_evolving, eval_answers, eval_relevance_gate, results/
 ├── infra/                    PostgreSQL schema, Prometheus rules, Grafana dashboard, CI workflow
-└── tests/                    210 fast tests, 21 tests against the live system
+└── tests/                    252 fast tests, 21 tests against the live system
 ```
 
 How a reviewer runs it (no API key needed):
@@ -567,7 +593,7 @@ Each part was built, measured, and changed where the measurement disagreed with 
 | Problem understanding | 15 | Section 1. "Already tried" handling, the agent as reviewer, escalation instead of guessing. |
 | Solution depth, production scale | 25 | Sections 3 to 5 and 9. Read and write paths, fallbacks, queue with sweep, cache versioning, capacity. |
 | Design decisions | 20 | Section 7, section 11, and DESIGN_DECISIONS.md with the measurements. |
-| Code | 25 | Section 10. 231 tests, CI, typed request models, one-command run. |
+| Code | 25 | Section 10. 247 tests, CI, typed request models, one-command run. |
 | Checkpoints, evals, monitoring | 15 | Section 8. Ten checkpoints, four evals, 16 tested alerts, a dashboard, a health check. |
 
 | Deliverable | Where |

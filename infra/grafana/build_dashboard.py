@@ -100,8 +100,12 @@ ROWS = [
             },
             {
                 "title": "Why the model was not used",
-                "help": "llm_unavailable, invalid_output or llm_disabled.",
-                "queries": [("sum by (reason) (rate(generation_fallbacks_total[5m])) * 60", "{{reason}}")],
+                "help": "llm_unavailable, invalid_output or llm_disabled. "
+                "'backup model asked' = the first model failed and the backup model was tried.",
+                "queries": [
+                    ("sum by (reason) (rate(generation_fallbacks_total[5m])) * 60", "{{reason}}"),
+                    ("sum(rate(generation_model_failovers_total[5m])) * 60", "backup model asked"),
+                ],
                 "width": 8,
             },
             {

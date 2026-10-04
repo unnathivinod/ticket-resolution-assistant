@@ -3,7 +3,7 @@
 Endpoints
   POST /generate   complaint + retrieved sources -> cited, checked resolution
   GET  /health     is the process alive?
-  GET  /ready      is the embedding service reachable? (also reports whether the model is available)
+  GET  /ready      is the embedding service reachable? (also reports whether the models are available)
   GET  /metrics    numbers for Prometheus
 """
 
@@ -65,7 +65,10 @@ class GenerateResponse(BaseModel):
     dropped_steps: int = Field(description="Steps removed because they cited no real source")
     fallback_reason: str | None
     sources_used: list[str]
-    model: str | None
+    model: str | None = Field(description="The model that wrote the answer. None when it was quoted")
+    failover_from: str | None = Field(
+        default=None, description="The first-choice model, when it failed and the backup model answered"
+    )
     prompt_version: str
     usage: dict[str, int]
     timings_ms: dict[str, float]
@@ -78,16 +81,26 @@ def create_app(generator: Generator | None = None, settings: Settings | None = N
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         if app.state.generator is None:
-            llm = None
+            llm, fallback_llm = None, None
             if settings.llm_enabled:
                 llm = LLMClient(
                     settings.llm_base_url,
                     settings.llm_model,
                     settings.llm_api_key,
                     settings.llm_timeout_seconds,
+                    reasoning_effort=settings.llm_reasoning_effort,
+                    extra_tokens=settings.llm_extra_tokens,
+                    rate_limit_wait=settings.llm_rate_limit_wait_seconds,
                 )
+                if settings.fallback_llm_base_url and settings.fallback_llm_model:
+                    fallback_llm = LLMClient(
+                        settings.fallback_llm_base_url,
+                        settings.fallback_llm_model,
+                        settings.fallback_llm_api_key,
+                        settings.fallback_llm_timeout_seconds,
+                    )
             app.state.generator = Generator(
-                llm, EmbeddingClient(settings.embedding_url, timeout=30), settings
+                llm, EmbeddingClient(settings.embedding_url, timeout=30), settings, fallback_llm
             )
         yield
 
@@ -105,7 +118,13 @@ def create_app(generator: Generator | None = None, settings: Settings | None = N
         if generator is None or not generator.embedder_ready():
             raise HTTPException(status_code=503, detail="Embedding service is not available")
         # The service still works without the model (it quotes the sources), so that is not a failure.
-        return {"status": "ready", "llm_available": generator.llm_ready(), "llm_model": settings.llm_model}
+        return {
+            "status": "ready",
+            "llm_available": generator.llm_ready(),
+            "llm_model": settings.llm_model,
+            "fallback_llm_model": generator.fallback_model,
+            "fallback_llm_available": generator.fallback_llm_ready(),
+        }
 
     # Plain "def": the model call blocks for seconds, so FastAPI runs it in a worker thread.
     @app.post("/generate", response_model=GenerateResponse)
@@ -130,6 +149,8 @@ def create_app(generator: Generator | None = None, settings: Settings | None = N
             extra={
                 "fields": {
                     "mode": result["mode"],
+                    "model": result["model"],
+                    "failover_from": result["failover_from"],
                     "steps": len(result["steps"]),
                     "grounded": result["grounded"],
                     "escalate": result["escalate"],

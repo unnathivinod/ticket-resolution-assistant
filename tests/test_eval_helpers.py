@@ -2,8 +2,9 @@
 
 import pytest
 
-from evals.eval_answers import checkpoint_table, judge, spread, summarise
+from evals.eval_answers import answers_by_model, checkpoint_table, judge, result_name, spread, summarise
 from evals.eval_evolving import summarise_groups, ticket_body
+from evals.eval_relevance_gate import gate_table, threshold_for_budget, verdict
 from evals.eval_retrieval import score_query
 from evals.eval_triage import load_items, macro_f1, share
 from services.ingestion.discovery import Proposal
@@ -172,7 +173,45 @@ def test_summarise_counts_outcomes_and_step_quality():
     assert summarise([])["complaints"] == 0
 
 
+def test_each_model_gets_its_own_result_file_and_a_mixed_run_is_visible():
+    assert result_name("v2", "llama3.2:3b") == "answers_v2"  # the name used so far
+    assert result_name("v2", None) == "answers_v2"
+    assert result_name("v3", "openai/gpt-oss-20b") == "answers_v3_openai-gpt-oss-20b"
+    rows = [{"model": "hosted"}, {"model": "local"}, {"model": "hosted"}, {"model": None}]
+    assert answers_by_model(rows) == {"hosted": 2, "local": 1}
+
+
 def test_spread_picks_evenly_across_the_list():
     items = [{"id": n} for n in range(100)]
     assert [item["id"] for item in spread(items, 4)] == [0, 25, 50, 75]
     assert spread(items, 0) == [] and len(spread(items[:3], 10)) == 3
+
+
+# ---- eval_relevance_gate -----------------------------------------------------------------------
+
+
+def test_threshold_for_budget_never_stops_more_known_complaints_than_allowed():
+    known = [n / 100 for n in range(100)]  # 0.00 ... 0.99
+    threshold = threshold_for_budget(known, 0.05)
+    assert sum(value < threshold for value in known) == 5
+    assert threshold_for_budget(known, 0.0) == 0.0  # nothing may be stopped
+    assert threshold_for_budget([0.5, 0.5, 0.5], 0.5) == 0.5  # ties: nothing is below 0.5
+
+
+def test_gate_table_and_verdict_when_the_check_separates_the_groups():
+    scores = {
+        "known": [0.9] * 95 + [0.1] * 5,
+        "new_class": [0.2] * 8 + [0.95] * 2,
+        "off_topic": [0.01] * 10,
+    }
+    rows = gate_table(scores, [0.05, 0.10])
+    assert rows[0]["known"] <= 0.05 and rows[0]["off_topic"] == 1.0
+    useful, row = verdict(rows)
+    assert useful is True and row["new_class"] == 0.8
+
+
+def test_verdict_when_new_complaints_look_just_like_known_ones():
+    same = [n / 100 for n in range(100)]
+    rows = gate_table({"known": same, "new_class": same, "off_topic": [0.0] * 10}, [0.05])
+    useful, row = verdict(rows)
+    assert useful is False and row["new_class"] == 0.05  # stopping them costs exactly as much as it gains

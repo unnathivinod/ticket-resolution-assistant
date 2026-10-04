@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     # three quarters of off-topic questions have a closest match below 0.70, and three quarters of
     # real complaints are above 0.80. The end-to-end eval will measure this value directly.
     min_similarity: float = 0.72
+    # A second check on the same question, from a different model: the cross-encoder's relevance
+    # score for the best source. 0 switches it off. Set it from evals/eval_relevance_gate.py.
+    min_relevance: float = 0.0
     max_complaint_chars: int = 4000
     generation_timeout_seconds: float = 240.0
 

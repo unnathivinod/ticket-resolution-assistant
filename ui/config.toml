@@ -1,0 +1,7 @@
+# Streamlit theme for the agent page. Copied into the image as /app/.streamlit/config.toml.
+[theme]
+base = "light"
+primaryColor = "#1b47b8"
+backgroundColor = "#f2f4f8"
+secondaryBackgroundColor = "#ffffff"
+textColor = "#141c2b"

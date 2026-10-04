@@ -71,6 +71,15 @@ groups:
           summary: "More than 20% of answers are quoted from sources instead of drafted by the model"
           action: "See the 'Why the model was not used' panel. Check that Ollama is running and the model is pulled."
 
+      - alert: BackupModelInUse
+        expr: sum(rate(generation_model_failovers_total[10m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "The first-choice language model keeps failing and the backup model is answering"
+          action: "Agents still get answers, but slower. Check the provider's status, the API key and its rate limits in the generation service log."
+
       - alert: UnverifiedSteps
         expr: |
           sum(rate(generation_unsupported_steps_total[30m]))

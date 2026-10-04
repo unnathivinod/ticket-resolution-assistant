@@ -12,7 +12,7 @@ from services.generation.config import Settings
 from services.generation.main import create_app
 from services.generation.prompt import answer_schema, build_user_prompt, clean_step_text
 from services.generation.service import Generator
-from services.generation.sources import group_sources, resolution_steps, shorten, statements
+from services.generation.sources import group_sources, resolution_steps, said_by_customer, shorten, statements
 from tests.fakes import FakeEmbedder, FakeLLM
 
 STEPS = ["Run a remote line test at peak time.", "Change the router Wi-Fi channel to a less crowded one."]
@@ -110,6 +110,25 @@ def test_schema_only_allows_citing_the_sources_shown():
     ]
 
 
+def test_schema_is_closed_so_strict_providers_accept_it():
+    """Hosted providers only accept a 'strict' schema when every object lists all its fields
+    as required and allows no others."""
+
+    def objects(node):
+        if isinstance(node, dict):
+            if node.get("type") == "object":
+                yield node
+            for value in node.values():
+                yield from objects(value)
+
+    for match_check in (False, True):
+        found = list(objects(answer_schema(["KB-001"], match_check)))
+        assert len(found) == 2
+        for node in found:
+            assert node["additionalProperties"] is False
+            assert set(node["required"]) == set(node["properties"])
+
+
 @pytest.mark.parametrize(
     ("raw", "cleaned"),
     [
@@ -189,6 +208,51 @@ def test_llm_client_separates_unavailable_from_bad_output():
         llm_client(lambda request: httpx.Response(200, json=not_json)).chat_json("s", "u", {})
 
 
+def test_llm_client_only_sends_reasoning_settings_when_they_are_set():
+    seen = []
+
+    def handler(request):
+        seen.append(json.loads(request.content))
+        return httpx.Response(200, json={"choices": [{"message": {"content": "{}"}}]})
+
+    llm_client(handler).chat_json("s", "u", {}, max_tokens=400)
+    thinking = LLMClient(
+        "http://llm/v1",
+        "m",
+        transport=httpx.MockTransport(handler),
+        reasoning_effort="low",
+        extra_tokens=1000,
+    )
+    thinking.chat_json("s", "u", {}, max_tokens=400)
+    assert "reasoning_effort" not in seen[0] and seen[0]["max_tokens"] == 400  # what Ollama gets
+    assert seen[1]["reasoning_effort"] == "low" and seen[1]["max_tokens"] == 1400
+
+
+def test_llm_client_waits_out_a_short_rate_limit_but_not_a_long_one(monkeypatch):
+    waited = []
+    monkeypatch.setattr("libs.common.llm_client.time.sleep", waited.append)
+
+    def limited(retry_after):
+        answers = [
+            httpx.Response(429, headers={"retry-after": retry_after}, json={"error": "rate limit"}),
+            httpx.Response(200, json={"choices": [{"message": {"content": '{"ok": true}'}}]}),
+        ]
+        handler = lambda request: answers.pop(0)  # noqa: E731
+        return LLMClient("http://llm/v1", "m", transport=httpx.MockTransport(handler), rate_limit_wait=10)
+
+    parsed, _ = limited("2").chat_json("s", "u", {})
+    assert parsed == {"ok": True} and waited == [2.5]
+    with pytest.raises(LLMUnavailableError, match="429"):
+        limited("60").chat_json("s", "u", {})  # too long to keep an agent waiting
+    assert waited == [2.5]
+
+
+def test_llm_client_treats_an_empty_reply_as_unusable():
+    empty = {"choices": [{"message": {"content": None}}]}
+    with pytest.raises(LLMOutputError, match="empty"):
+        llm_client(lambda request: httpx.Response(200, json=empty)).chat_json("s", "u", {})
+
+
 # ---- checking the model's answer --------------------------------------------------------------
 
 
@@ -235,6 +299,47 @@ def test_steps_the_customer_already_tried_are_flagged():
     result = gen.generate("I already changed the Wi-Fi channel.", SOURCES)
     assert [step["repeats_already_tried"] for step in result["steps"]] == [False, True]
     assert result["already_tried"] == [STEPS[1]]
+
+
+def test_an_already_tried_item_the_customer_never_said_is_removed():
+    # The model lifts "reset the router to factory settings" from a past ticket. The customer
+    # only said the router broke. The invented item is dropped, the real one is kept.
+    invented = reply(
+        [(STEPS[0], ["T-000001"])],
+        already_tried=["Reset the router to factory settings", "Restarted the router twice"],
+    )
+    gen, _ = generator(invented)
+    result = gen.generate("My router broke. I already restarted the router twice.", SOURCES)
+    assert result["already_tried"] == ["Restarted the router twice"]
+
+    gen, _ = generator(
+        reply([(STEPS[0], ["T-000001"])], already_tried=["Reset the router to factory settings"])
+    )
+    result = gen.generate("my router broke into two pieces, I have a meeting in 1 hour", SOURCES)
+    assert result["already_tried"] == []
+    assert not any(step["repeats_already_tried"] for step in result["steps"])
+
+
+@pytest.mark.parametrize(
+    ("item", "complaint", "kept"),
+    [
+        ("Restarted the router twice", "I've already restarted the router twice", True),
+        ("restarting the router", "I restarted my router and it still drops", True),  # word endings differ
+        ("Called old network", "I called my old network to check already", True),
+        ("Reset the router to factory settings", "my router broke into two pieces", False),
+        ("Checked the outage map", "The internet is slow in the evening", False),
+        ("Restarted the router", "my router broke into two pieces", False),  # only "router" is shared
+        ("Rebooted", "I rebooted it and nothing changed", True),
+        (
+            "Change the router Wi-Fi channel to a less crowded one",  # the model elaborates
+            "I already changed the Wi-Fi channel.",
+            True,
+        ),
+        ("", "anything", False),
+    ],
+)
+def test_said_by_customer(item, complaint, kept):
+    assert said_by_customer(item, complaint) is kept
 
 
 def test_the_model_may_escalate_instead_of_answering():
@@ -317,6 +422,52 @@ def test_when_the_model_is_down_we_do_not_wait_twice():
     assert result["steps"]
 
 
+def with_backup(first_replies, backup_replies):
+    first = FakeLLM(*first_replies, model="hosted-model")
+    backup = FakeLLM(*backup_replies, model="local-model")
+    return Generator(first, FakeEmbedder(), Settings(), backup), first, backup
+
+
+def test_the_backup_model_is_not_asked_when_the_first_model_answers():
+    gen, first, backup = with_backup([reply([(STEPS[0], ["T-000001"])])], [reply([(STEPS[1], ["KB-001"])])])
+    result = gen.generate("My broadband drops every evening.", SOURCES)
+    assert len(first.calls) == 1 and backup.calls == []
+    assert result["model"] == "hosted-model" and result["failover_from"] is None
+
+
+def test_the_backup_model_answers_when_the_first_model_is_unreachable():
+    gen, first, backup = with_backup(
+        [LLMUnavailableError("rate limited")], [reply([(STEPS[0], ["T-000001"])])]
+    )
+    result = gen.generate("My broadband drops every evening.", SOURCES)
+    assert len(first.calls) == 1 and len(backup.calls) == 1
+    assert result["mode"] == "llm" and result["model"] == "local-model"
+    assert result["failover_from"] == "hosted-model" and result["fallback_reason"] is None
+    assert backup.calls[0]["user"] == first.calls[0]["user"]  # the very same task
+
+
+def test_the_backup_model_answers_after_two_unusable_replies_from_the_first():
+    gen, first, backup = with_backup([LLMOutputError("not json")], [reply([(STEPS[0], ["T-000001"])])])
+    result = gen.generate("My broadband drops every evening.", SOURCES)
+    assert len(first.calls) == 2 and len(backup.calls) == 1
+    assert result["model"] == "local-model" and result["failover_from"] == "hosted-model"
+
+
+def test_when_both_models_fail_the_steps_are_quoted_from_the_source():
+    gen, first, backup = with_backup([LLMUnavailableError("down")], [LLMUnavailableError("down too")])
+    result = gen.generate("My broadband drops every evening.", SOURCES)
+    assert len(first.calls) == 1 and len(backup.calls) == 1
+    assert result["mode"] == "extractive" and result["fallback_reason"] == "llm_unavailable"
+    assert result["model"] is None and result["failover_from"] is None and result["steps"]
+
+
+def test_a_refusal_by_the_first_model_is_final_and_not_passed_to_the_backup():
+    escalation = reply([], escalate=True)
+    gen, first, backup = with_backup([escalation], [reply([(STEPS[0], ["T-000001"])])])
+    result = gen.generate("My broadband drops every evening.", SOURCES)
+    assert backup.calls == [] and result["escalate"] is True and result["steps"] == []
+
+
 def test_the_service_works_with_the_model_switched_off():
     gen, _ = generator(llm_enabled=False)
     result = gen.generate("My broadband drops every evening.", [KB, TICKET_A])
@@ -386,6 +537,9 @@ def test_ready_reports_whether_the_model_is_available(api):
     llm.is_ready = False
     response = client.get("/ready")
     assert response.status_code == 200 and response.json()["llm_available"] is False  # still usable
+    assert (
+        response.json()["fallback_llm_model"] is None and response.json()["fallback_llm_available"] is False
+    )
 
 
 def test_embedding_outage_gives_a_clean_503(api):

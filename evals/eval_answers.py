@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import statistics
 import sys
 import time
@@ -33,6 +34,7 @@ from pathlib import Path
 import httpx
 
 from services.gateway.config import Settings
+from services.generation.config import Settings as GenerationSettings
 
 ROOT = Path(__file__).resolve().parents[1]
 GENERATED = ROOT / "data" / "generated"
@@ -40,6 +42,7 @@ RESULTS_DIR = ROOT / "evals" / "results"
 
 CUT_OFFS = [0.55, 0.60, 0.65, 0.70, 0.72, 0.75, 0.80]
 OUTCOMES = ["right", "partly", "wrong", "escalated"]
+DEFAULT_MODEL = GenerationSettings.model_fields["llm_model"].default
 
 
 def read_jsonl(path: Path) -> list[dict]:
@@ -81,6 +84,7 @@ def judge(response: dict, scenario: str | None, scenario_of: dict[str, str | Non
         "right_source_found": any(scenario_of.get(s["id"]) == scenario for s in response["sources"]),
         "top_similarity": response["meta"]["top_similarity"],
         "model_used": response["meta"]["model"] is not None,
+        "model": response["meta"]["model"],
         "prompt_version": response["meta"].get("prompt_version"),
     }
 
@@ -133,7 +137,9 @@ class Gateway:
         sys.exit("The gateway kept answering 'too many requests'")
 
 
-def run_group(gateway: Gateway, name: str, items: list[dict], scenario_of: dict, done: int, total: int):
+def run_group(
+    gateway: Gateway, name: str, items: list[dict], scenario_of: dict, done: int, total: int, pause: float = 0
+):
     rows = []
     for item in items:
         response, seconds = gateway.resolve(item["complaint"], generate=True)
@@ -146,7 +152,26 @@ def run_group(gateway: Gateway, name: str, items: list[dict], scenario_of: dict,
             f"  [{done:>2}/{total}] {item['id']:<8} {row['outcome']:<9} "
             f"{seconds:>5.0f}s  {row['mode'] or '-':<10} {row['steps']} steps"
         )
+        if pause and row["model_used"]:
+            time.sleep(pause)  # stay under a hosted model's per-minute limit
     return rows, done
+
+
+def answers_by_model(rows: list[dict]) -> dict[str, int]:
+    """How many answers each model wrote, most first."""
+    counts: dict[str, int] = {}
+    for row in rows:
+        if row.get("model"):
+            counts[row["model"]] = counts.get(row["model"], 0) + 1
+    return dict(sorted(counts.items(), key=lambda item: -item[1]))
+
+
+def result_name(prompt_version: str, model: str | None) -> str:
+    """File name for the results. The default model keeps the short name used so far;
+    any other model gets its own file, so two models can be compared side by side."""
+    if not model or model == DEFAULT_MODEL:
+        return f"answers_{prompt_version}"
+    return f"answers_{prompt_version}_" + re.sub(r"[^a-z0-9]+", "-", model.lower()).strip("-")
 
 
 def to_markdown(checkpoint: list[dict], current: float, groups: dict, notes: list[str], model: str) -> str:
@@ -216,6 +241,11 @@ def build_notes(by_group: dict[str, list[dict]], groups: dict[str, dict]) -> lis
         f"New-class complaints: an answer was drafted for {new_drafted} of {len(by_group['new_class'])}, "
         "although the knowledge base holds no fix for them.",
     ]
+    nothing_tried = [row for row in drafted if not row["already_tried_in_complaint"]]
+    notes.append(
+        f"The customer mentioned nothing they tried in {len(nothing_tried)} complaints: the answer "
+        f"still listed something in {sum(row['noticed_already_tried'] for row in nothing_tried)}."
+    )
     refused = {
         name: sum(row["outcome"] == "escalated" and row["model_used"] for row in rows)
         for name, rows in by_group.items()
@@ -231,7 +261,15 @@ def build_notes(by_group: dict[str, list[dict]], groups: dict[str, dict]) -> lis
             f"slowest {max(seconds):.0f}s."
         )
     elif drafted:
-        notes.append("NOTE: no answer was written by the model in this run. Is Ollama running?")
+        notes.append("NOTE: no answer was written by the model in this run. Is the model reachable?")
+    writers = answers_by_model([row for rows in by_group.values() for row in rows])
+    if len(writers) > 1:
+        notes.append(
+            "NOTE: more than one model wrote answers ("
+            + ", ".join(f"{name}: {count}" for name, count in writers.items())
+            + "). The first model failed for some complaints and the backup model answered, so "
+            "these numbers mix two models. Run again with a longer --pause for a clean result."
+        )
     return notes
 
 
@@ -247,6 +285,12 @@ def main() -> None:
     parser.add_argument("--answers", type=int, default=20, help="known complaints to draft answers for")
     parser.add_argument("--new-class", type=int, default=6, help="new-class complaints to draft for")
     parser.add_argument("--skip-checkpoint", action="store_true", help="skip part 1")
+    parser.add_argument(
+        "--pause",
+        type=float,
+        default=0,
+        help="seconds to wait after each drafted answer (use about 20 with a free hosted model)",
+    )
     args = parser.parse_args()
 
     gateway = Gateway(
@@ -290,7 +334,7 @@ def main() -> None:
 
     done, by_group = 0, {}
     for name, items in (("known", known_sample), ("new_class", new_sample), ("off_topic", off_topic)):
-        by_group[name], done = run_group(gateway, name, items, scenario_of, done, total)
+        by_group[name], done = run_group(gateway, name, items, scenario_of, done, total, args.pause)
 
     groups = {
         "Known problems": summarise(by_group["known"]),
@@ -304,6 +348,8 @@ def main() -> None:
         url = os.environ.get("GENERATION_URL", "http://generation:8003")
         ready = httpx.get(f"{url}/ready", timeout=10).json()
         model = ready.get("llm_model", model) + ("" if ready.get("llm_available") else " (NOT available)")
+        if ready.get("fallback_llm_model"):
+            model += f", backup {ready['fallback_llm_model']}"
     except (httpx.HTTPError, ValueError):
         pass
 
@@ -314,10 +360,10 @@ def main() -> None:
     )
     print("\n" + table)
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    # One result file per prompt version, so a prompt change can be compared with the one before.
-    name = f"answers_{prompt_version}"
-    (RESULTS_DIR / f"{name}.md").write_text(table + "\n", encoding="utf-8", newline="\n")
+    # One result file per prompt version and model, so a change can be compared with the one before.
     answers = [row for rows in by_group.values() for row in rows]
+    name = result_name(prompt_version, next(iter(answers_by_model(answers)), None))
+    (RESULTS_DIR / f"{name}.md").write_text(table + "\n", encoding="utf-8", newline="\n")
     (RESULTS_DIR / f"{name}.json").write_text(
         json.dumps({"checkpoint": checkpoint, "groups": groups, "answers": answers}, indent=2) + "\n",
         encoding="utf-8",

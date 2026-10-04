@@ -227,6 +227,119 @@ What would fix it properly, in order of expected value: a larger model for the m
 only (one short call), a reranker used as a relevance gate with a threshold taken from this eval,
 and better search (5 of the 6 wrong answers were search misses).
 
+### A third attempt at "does it know when it does not know": a second opinion
+
+The similarity cut-off cannot see new problems, and the language model cannot judge the match.
+A third idea, built and waiting for its measurement: ask the cross-encoder. It reads the complaint
+and one source together and scores how relevant the source is, which is a different kind of
+evidence from comparing two vectors. Search can return this score for the five sources without
+changing their order, and the gateway can refuse when the best score is too low (`MIN_RELEVANCE`).
+
+It is **off by default**. `evals/eval_relevance_gate.py` scores all 430 test complaints and
+answers one question: for a given share of answerable complaints stopped by mistake, how many
+new-class and off-topic complaints are stopped? The rule set in advance: switch it on only if,
+at a cost of 5% of answerable complaints, it stops at least half of the new-class ones. The
+result is saved in `evals/results/relevance_gate.md`.
+
+### Found by trying it by hand: one complaint, three different faults
+
+Complaint typed into the web page: *"my router broke into two pieces, what do i do? I have a
+meeting in 1 hour, fix this immediately"*. The result looked fine and was wrong in three ways,
+each with a different cause.
+
+| What was wrong | Cause | Fix |
+|---|---|---|
+| Severity "medium, no urgency signals" | The urgency examples had nothing about a deadline within hours. Not the language model: triage does not use it. | A `time_pressure` signal in `signals.yaml` (four example sentences). Kept only if `eval_triage.py` shows severity accuracy does not drop. |
+| "Customer already tried: reset the router to factory settings", which the customer never said | The model lifted it from a past ticket shown as a source. | A code check: an "already tried" item is kept only if it shares at least two meaningful words with the complaint. |
+| Steps about a line fault, for a router that is physically broken | The knowledge base had no article about a broken router, and the system cannot tell that it has no fix (the limitation above). | Add the missing article through the API (`scripts/add_document.py`). This is requirement 3 doing its job: new knowledge, live in seconds. |
+
+The second fault was hiding in the eval results. The eval checked that the model *noticed* what the
+customer tried (11 of 11) and never checked the opposite case. Counting it afterwards in the saved
+results: when the complaint mentions nothing tried, the answer still listed something in **8 of 9**
+known complaints. `eval_answers.py` now reports that number.
+
+Lesson kept for the interview: an eval only measures what it was written to measure. Typing in
+odd complaints by hand found a fault that 56 scored complaints did not.
+
+### A faster model without losing the free one: first choice and backup
+
+The local model takes about half a minute per answer on a laptop CPU. A hosted model answers in a
+few seconds, but needs a key, has a rate limit on a free plan, and sends the complaint to another
+company. The reviewer must be able to run the project with no key at all.
+
+| Option | Speed | Works with no key | Works when the provider is down or rate limited |
+|---|---|---|---|
+| Ollama only (the default) | slow | yes | yes |
+| Hosted only | fast | no | no: every answer becomes a quote from the source |
+| **Hosted first, Ollama as backup** (built as an option) | fast | yes, the default is unchanged | yes, slower |
+
+How it is built:
+
+- Both speak the same OpenAI-compatible API, so there is one client and no provider-specific code.
+  The first model and the backup are two groups of settings (`LLM_*` and `LLM_FALLBACK_*`).
+- The backup is asked when the first model is unreachable, rate limited beyond a short wait, or
+  gives two unusable replies. A refusal ("escalate") is an answer, not a failure, so it is final.
+- A rate-limit reply that asks for a wait of up to 10 seconds is waited out once. A longer one
+  goes to the backup: an agent should not sit in front of a spinner.
+- The hosted model gets a 30 second time limit, so the worst case (first model hangs, backup
+  answers) still fits inside the gateway's own limit.
+- The answer says which model wrote it. The web page shows it, and a counter and an alert
+  (`BackupModelInUse`) tell the operator when the first model keeps failing.
+- The answer format is now "closed" (every field required, no extra fields). Hosted providers
+  demand that for guaranteed-valid output; Ollama behaves the same with or without it.
+
+Costs accepted: with a hosted model the complaint and three sources leave the machine (personal
+details are masked first), and a free plan allows roughly 80 to 100 answers a day. The answer
+eval (`eval_answers.py --pause 20`) paces itself for that, writes one result file per model, and
+warns if the backup model wrote some of the answers, because the numbers would then mix two models.
+
+### Measured: the same complaints, local model against hosted model
+
+`eval_answers.py --skip-checkpoint --pause 20` with `openai/gpt-oss-20b` on Groq, compared with
+the saved run of `llama3.2:3b`. Same 56 complaints, same search, same prompt (v2). The backup
+model was never needed during the run.
+
+| | `llama3.2:3b` (local) | `gpt-oss-20b` (hosted) |
+|---|---|---|
+| Known problems (20): right | 11 | 15 |
+| Known problems: right, mixed with another problem | 3 | 0 |
+| Known problems: wrong | 6 | 3 |
+| Known problems: refused | 0 | 2 |
+| New class, no fix exists (6): wrong answer | 6 | 3 |
+| New class: refused | 0 | 3 |
+| Off-topic (30): stopped by the similarity cut-off | 23 | 23 |
+| Off-topic that reached the model (7): answered | 7 | 0 |
+| Steps backed by their source | 100% | 100% |
+| Time per drafted answer, typical / slowest | 31 s / 44 s | 1.4 s / 3.9 s |
+
+Read per complaint, the result is sharper than the totals:
+
+- The search found a source about the right problem for 15 of the 20 known complaints. The
+  hosted model answered **all 15** from the right source. The local model got 11 right, mixed
+  in a second problem for 3, and picked the wrong source for 1.
+- For the 5 complaints where the search found no right source, no model can answer correctly.
+  The local model drafted 5 confident wrong answers. The hosted model drafted 3 and refused 2.
+- So with the larger model, every wrong answer on a known problem is a **search miss**. The
+  next gain is in retrieval (Hit@3 is 0.71), not in the prompt or the model.
+- The limitation found earlier, that the system does not know when it has no fix, is half
+  fixed by the model alone: 3 of 6 new-class complaints are now refused, without the
+  match-check prompt that the small model could not handle. It is not solved: 3 of 6 still
+  get a confident wrong answer, so a person must still review every draft.
+
+What this comparison cannot say:
+
+- Groups of 20, 6 and 7 complaints and one run per model. The direction is clear; the exact
+  rates are not.
+- "Already tried" items the customer never said went from 8 of 9 to 0 of 8, but a code check
+  that removes them was added between the two runs, so that change is not the model's.
+- A refusal costs something too: 2 known complaints got no draft. Both were search misses, so
+  the alternative was a wrong answer, but an agent then starts from the sources alone.
+
+Decision: the local model stays the default so the project runs with no key. The hosted model
+is the recommended setting when a key is available, with the local model as its backup.
+Still to try: the match-check prompt (`LLM_MATCH_CHECK=true`) with the larger model, to see
+whether it refuses the remaining 3 new-class complaints without refusing answerable ones.
+
 ## Gateway: one front door
 
 The agent web page and any other client only ever talk to the gateway. It runs the steps in order

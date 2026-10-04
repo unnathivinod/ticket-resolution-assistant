@@ -5,12 +5,14 @@ Pipeline for one request:
   2. Ask the language model for a JSON answer in which every step cites a source ID.
   3. Check the answer: citations must be real, each step must be supported by its source,
      and steps the customer already tried are flagged.
-  4. If the model is unavailable or its answer is unusable, fall back to quoting the
-     resolution steps of the best source directly. The service always returns something useful.
+  4. If the model is unavailable or its answer is unusable, ask the backup model when one is
+     configured. If that fails too, fall back to quoting the resolution steps of the best
+     source directly. The service always returns something useful.
 """
 
 from __future__ import annotations
 
+import logging
 import time
 
 from prometheus_client import Counter, Histogram
@@ -25,13 +27,32 @@ from services.generation.prompt import (
     prompt_version,
     system_prompt,
 )
-from services.generation.sources import SourceGroup, group_sources, resolution_steps, shorten, statements
+from services.generation.sources import (
+    SourceGroup,
+    group_sources,
+    resolution_steps,
+    said_by_customer,
+    shorten,
+    statements,
+)
+
+log = logging.getLogger("generation")
 
 ANSWERS = Counter("generation_answers_total", "Answers produced, by how they were made", ["mode"])
 FALLBACKS = Counter("generation_fallbacks_total", "Times the model's answer could not be used", ["reason"])
 REFUSALS = Counter(
     "generation_model_refusals_total", "Answers withheld because the model said the sources do not match"
 )
+INVENTED_TRIED = Counter(
+    "generation_invented_already_tried_total",
+    "'Already tried' items removed because the customer never said them",
+)
+FAILOVERS = Counter(
+    "generation_model_failovers_total",
+    "Times the backup model was asked because the first model failed",
+    ["reason"],
+)
+MODEL_ANSWERS = Counter("generation_model_answers_total", "Answers written by each model", ["model"])
 DROPPED_STEPS = Counter("generation_dropped_steps_total", "Steps removed because they cited no real source")
 UNSUPPORTED_STEPS = Counter("generation_unsupported_steps_total", "Steps not backed by their cited source")
 LLM_SECONDS = Histogram(
@@ -46,6 +67,8 @@ for _mode in ("llm", "extractive"):
     ANSWERS.labels(_mode)
 for _reason in ("llm_disabled", "llm_unavailable", "invalid_output"):
     FALLBACKS.labels(_reason)
+for _reason in ("llm_unavailable", "invalid_output"):
+    FAILOVERS.labels(_reason)
 
 
 def _dot(a: list[float], b: list[float]) -> float:
@@ -53,26 +76,36 @@ def _dot(a: list[float], b: list[float]) -> float:
 
 
 class Generator:
-    def __init__(self, llm, embedder, settings: Settings) -> None:
+    def __init__(self, llm, embedder, settings: Settings, fallback_llm=None) -> None:
         self._llm = llm  # may be None when the model is switched off
+        self._fallback_llm = fallback_llm  # asked only when the first model fails; usually None
         self._embedder = embedder
         self._settings = settings
 
     def llm_ready(self) -> bool:
         return self._llm is not None and self._llm.ready()
 
+    def fallback_llm_ready(self) -> bool:
+        return self._fallback_llm is not None and self._fallback_llm.ready()
+
+    @property
+    def fallback_model(self) -> str | None:
+        return self._fallback_llm.model if self._fallback_llm is not None else None
+
     def embedder_ready(self) -> bool:
         return self._embedder.ready()
 
     # ---- step 2: ask the model -------------------------------------------------------------
 
-    def _ask_model(self, complaint: str, triage: dict | None, groups: list[SourceGroup]) -> tuple[dict, dict]:
+    def _ask_model(
+        self, llm, complaint: str, triage: dict | None, groups: list[SourceGroup]
+    ) -> tuple[dict, dict]:
         settings = self._settings
         shown = [
             {**group.primary, "content": shorten(group.primary["content"], settings.max_source_chars)}
             for group in groups
         ]
-        return self._llm.chat_json(
+        return llm.chat_json(
             system=system_prompt(settings.max_steps, settings.match_check),
             user=build_user_prompt(complaint, triage, shown),
             schema=answer_schema([group.primary["id"] for group in groups], settings.match_check),
@@ -163,6 +196,71 @@ class Generator:
                     }
         return None
 
+    # ---- steps 2 and 3 for one model ----------------------------------------------------------
+
+    def _draft(
+        self, llm, complaint: str, triage: dict | None, groups: list[SourceGroup], timings: dict
+    ) -> tuple[dict | None, dict, str | None, int]:
+        """Ask one model and check its answer. Returns (answer, token usage, why it failed, dropped steps).
+
+        answer is None when this model could not produce a usable one.
+        """
+        settings = self._settings
+        usage, reason, dropped = {}, None, 0
+        for _attempt in range(2):  # one retry if the answer is unusable
+            stage = time.perf_counter()
+            try:
+                raw, usage = self._ask_model(llm, complaint, triage, groups)
+            except LLMUnavailableError as error:
+                log.warning("model unavailable", extra={"fields": {"model": llm.model, "error": str(error)}})
+                timings["llm"] = timings.get("llm", 0.0) + time.perf_counter() - stage
+                return None, usage, "llm_unavailable", dropped  # do not wait for a second timeout
+            except LLMOutputError as error:
+                log.warning("unusable reply", extra={"fields": {"model": llm.model, "error": str(error)}})
+                reason = "invalid_output"
+                timings["llm"] = timings.get("llm", 0.0) + time.perf_counter() - stage
+                continue
+            timings["llm"] = timings.get("llm", 0.0) + time.perf_counter() - stage
+            LLM_SECONDS.observe(time.perf_counter() - stage)
+            TOKENS.labels("prompt").inc(usage.get("prompt_tokens", 0))
+            TOKENS.labels("completion").inc(usage.get("completion_tokens", 0))
+
+            # Keep only "already tried" items the customer really wrote. The model sometimes
+            # lifts one from a past ticket, which would also flag good steps as repeats.
+            claimed = [str(item).strip() for item in raw.get("already_tried", []) if str(item).strip()]
+            raw["already_tried"] = [item for item in claimed if said_by_customer(item, complaint)]
+            INVENTED_TRIED.inc(len(claimed) - len(raw["already_tried"]))
+
+            if settings.match_check and raw.get("same_problem") is False:
+                # The model says the sources are about a different problem. Its word is
+                # enforced here: no steps are shown, whatever else it wrote.
+                REFUSALS.inc()
+                about = str(raw.get("source_problem", "")).strip().rstrip(".") or "a different problem"
+                wanted = str(raw.get("customer_problem", "")).strip().rstrip(".") or "this problem"
+                answer = {
+                    "summary": f"No matching fix was found for: {wanted}.",
+                    "already_tried": [str(item) for item in raw.get("already_tried", [])],
+                    "steps": [],
+                    "escalate": True,
+                    "escalation_reason": f"The closest sources are about something else ({about}).",
+                }
+                return answer, usage, None, dropped
+
+            stage = time.perf_counter()
+            steps, dropped = self._check(raw, groups)
+            timings["check"] = timings.get("check", 0.0) + time.perf_counter() - stage
+            if steps or raw.get("escalate") is True:
+                answer = {
+                    "summary": str(raw.get("summary", "")).strip(),
+                    "already_tried": [str(item) for item in raw.get("already_tried", [])],
+                    "steps": steps,
+                    "escalate": bool(raw.get("escalate")) or not steps,
+                    "escalation_reason": str(raw.get("escalation_reason", "")).strip(),
+                }
+                return answer, usage, None, dropped
+            reason = "invalid_output"  # no usable steps and no escalation: try again
+        return None, usage, reason, dropped
+
     # ---- the whole pipeline ------------------------------------------------------------------
 
     def generate(self, complaint: str, sources: list[dict], triage: dict | None = None) -> dict:
@@ -172,57 +270,18 @@ class Generator:
         complaint = mask_pii(complaint)
         groups = group_sources(sources, settings.duplicate_overlap)[: settings.max_prompt_sources]
 
-        answer, usage, fallback_reason, dropped = None, {}, None, 0
-        if not settings.llm_enabled or self._llm is None:
-            fallback_reason = "llm_disabled"
-        else:
-            for _attempt in range(2):  # one retry if the answer is unusable
-                stage = time.perf_counter()
-                try:
-                    raw, usage = self._ask_model(complaint, triage, groups)
-                except LLMUnavailableError:
-                    fallback_reason = "llm_unavailable"
-                    timings["llm"] = timings.get("llm", 0.0) + time.perf_counter() - stage
-                    break  # do not wait for a second timeout
-                except LLMOutputError:
-                    fallback_reason = "invalid_output"
-                    timings["llm"] = timings.get("llm", 0.0) + time.perf_counter() - stage
-                    continue
-                timings["llm"] = timings.get("llm", 0.0) + time.perf_counter() - stage
-                LLM_SECONDS.observe(time.perf_counter() - stage)
-                TOKENS.labels("prompt").inc(usage.get("prompt_tokens", 0))
-                TOKENS.labels("completion").inc(usage.get("completion_tokens", 0))
-
-                if settings.match_check and raw.get("same_problem") is False:
-                    # The model says the sources are about a different problem. Its word is
-                    # enforced here: no steps are shown, whatever else it wrote.
-                    REFUSALS.inc()
-                    about = str(raw.get("source_problem", "")).strip().rstrip(".") or "a different problem"
-                    wanted = str(raw.get("customer_problem", "")).strip().rstrip(".") or "this problem"
-                    answer = {
-                        "summary": f"No matching fix was found for: {wanted}.",
-                        "already_tried": [str(item) for item in raw.get("already_tried", [])],
-                        "steps": [],
-                        "escalate": True,
-                        "escalation_reason": f"The closest sources are about something else ({about}).",
-                    }
-                    fallback_reason = None
-                    break
-
-                stage = time.perf_counter()
-                steps, dropped = self._check(raw, groups)
-                timings["check"] = timings.get("check", 0.0) + time.perf_counter() - stage
-                if steps or raw.get("escalate") is True:
-                    answer = {
-                        "summary": str(raw.get("summary", "")).strip(),
-                        "already_tried": [str(item) for item in raw.get("already_tried", [])],
-                        "steps": steps,
-                        "escalate": bool(raw.get("escalate")) or not steps,
-                        "escalation_reason": str(raw.get("escalation_reason", "")).strip(),
-                    }
-                    fallback_reason = None
-                    break
-                fallback_reason = "invalid_output"  # no usable steps and no escalation: try again
+        answer, usage, fallback_reason, dropped = None, {}, "llm_disabled", 0
+        answered_by, failover_from = None, None
+        models = [self._llm, self._fallback_llm] if settings.llm_enabled and self._llm is not None else []
+        for position, llm in enumerate(model for model in models if model is not None):
+            if position > 0:
+                # The first model failed. Note it, then give the backup model the same task.
+                FAILOVERS.labels(fallback_reason).inc()
+                failover_from = self._llm.model
+            answer, usage, fallback_reason, dropped = self._draft(llm, complaint, triage, groups, timings)
+            if answer is not None:
+                answered_by = llm.model
+                break
 
         mode = "llm"
         if answer is None:
@@ -235,6 +294,8 @@ class Generator:
                 "escalate": True,
                 "escalation_reason": "The retrieved sources contain no resolution steps.",
             }
+        else:
+            MODEL_ANSWERS.labels(answered_by).inc()
 
         unsupported = sum(1 for step in answer["steps"] if not step["verified"])
         DROPPED_STEPS.inc(dropped)
@@ -248,7 +309,9 @@ class Generator:
             "dropped_steps": dropped,
             "fallback_reason": fallback_reason,
             "sources_used": [source_id for group in groups for source_id in group.ids],
-            "model": self._llm.model if mode == "llm" else None,
+            "model": answered_by,
+            # Set when the first-choice model failed and the backup model wrote the answer.
+            "failover_from": failover_from if mode == "llm" else None,
             "prompt_version": prompt_version(settings.match_check),
             "usage": {key: usage.get(key, 0) for key in ("prompt_tokens", "completion_tokens")},
             "timings_ms": {name: round(seconds * 1000, 1) for name, seconds in timings.items()},

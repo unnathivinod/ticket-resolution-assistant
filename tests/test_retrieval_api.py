@@ -126,6 +126,17 @@ def test_rerank_can_be_switched_off(setup):
     assert embedder.rerank_calls == calls  # no extra rerank call was made
 
 
+def test_relevance_can_be_scored_without_changing_the_order(setup):
+    client, _, embedder = setup
+    plain = search(client, query="broadband drops every evening")
+    scored = search(client, query="broadband drops every evening", score_relevance=True)
+    assert [r["id"] for r in scored["results"]] == [r["id"] for r in plain["results"]]  # same order
+    assert all(r["relevance"] is None for r in plain["results"])
+    assert all(0.0 <= r["relevance"] <= 1.0 for r in scored["results"])
+    assert embedder.rerank_calls == 1 and "relevance" in scored["timings_ms"]
+    assert scored["reranked"] is False
+
+
 def test_product_hint_boosts_matching_results(setup):
     client, _, _ = setup
     options = {"query": "not working this month", "top_k_tickets": 5, "top_k_kb": 0, "rerank": True}

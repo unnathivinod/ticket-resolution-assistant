@@ -83,6 +83,7 @@ def answer_schema(source_ids: list[str], match_check: bool = False) -> dict:
                     "citations": {"type": "array", "items": {"type": "string", "enum": source_ids}},
                 },
                 "required": ["text", "citations"],
+                "additionalProperties": False,
             },
         },
         "escalate": {"type": "boolean"},
@@ -97,7 +98,14 @@ def answer_schema(source_ids: list[str], match_check: bool = False) -> dict:
             "same_problem": {"type": "boolean"},
             **properties,
         }
-    return {"type": "object", "properties": properties, "required": list(properties)}
+    # Every field is required and no other field is allowed. Hosted providers demand both for
+    # "strict" output (the reply is then guaranteed to fit); Ollama behaves the same either way.
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": list(properties),
+        "additionalProperties": False,
+    }
 
 
 def build_user_prompt(complaint: str, triage: dict | None, sources: list[dict]) -> str:

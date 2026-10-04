@@ -27,6 +27,15 @@ signals:
       - I need this for work and I have an important deadline this week.
       - My children have online classes and cannot attend.
 
+  time_pressure:
+    description: The customer has a deadline within hours, such as a meeting, an exam or an interview.
+    severity_delta: 1
+    examples:
+      - I have a meeting in one hour and need this working.
+      - I need this fixed today, I have an interview this afternoon.
+      - I have an exam tonight and cannot wait for this.
+      - This has to be working within the hour.
+
   repeat_contact:
     description: The customer has already contacted support about this without a fix.
     severity_delta: 1

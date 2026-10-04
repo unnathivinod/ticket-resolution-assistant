@@ -73,3 +73,39 @@ def shorten(content: str, limit: int) -> str:
         return content
     cut = content.rfind("\n", 0, limit)
     return content[: cut if cut > limit // 2 else limit].rstrip() + "\n[...]"
+
+
+_WORD = re.compile(r"[a-z0-9]+")
+_FILLER = frozenset(
+    "the and for with that this have has had was were are but not you your she her his its our "
+    "they them from into onto out off then than too very also just still already tried try".split()
+)
+
+
+def _key_words(text: str) -> set[str]:
+    """The meaningful words of a text, with common endings removed (restarted, restarting -> restart)."""
+    words = set()
+    for word in _WORD.findall(text.lower()):
+        if len(word) < 3 or word in _FILLER:
+            continue
+        for ending in ("ing", "ed", "es", "s"):
+            if word.endswith(ending) and len(word) - len(ending) >= 3:
+                word = word[: -len(ending)]
+                break
+        words.add(word.rstrip("e"))  # change, changed -> chang
+    return words
+
+
+def said_by_customer(item: str, complaint: str) -> bool:
+    """Is this "already tried" item really in the complaint?
+
+    A small model sometimes copies an action from a past ticket ("reset the router to factory
+    settings") and reports it as something THIS customer tried. An item is kept only when it
+    shares at least two meaningful words with the complaint (one, for a one-word item), and
+    those are at least a third of its words. Sharing only "router" is not enough.
+    """
+    wanted = _key_words(item)
+    if not wanted:
+        return False
+    shared = len(wanted & _key_words(complaint))
+    return shared >= min(2, len(wanted)) and shared / len(wanted) >= 0.3

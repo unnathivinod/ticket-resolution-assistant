@@ -50,6 +50,11 @@ class SearchRequest(BaseModel):
         3.0, gt=0, le=10, description="Hybrid only: how much more the meaning search counts than keywords"
     )
     rerank: bool = False
+    score_relevance: bool = Field(
+        False,
+        description="Also score each returned result with the cross-encoder (0 to 1), without "
+        "changing the order. Used as a second 'does this really fit?' check",
+    )
     product_hint: str | None = Field(
         None,
         description="Product guessed by triage. Used only with rerank: matching results get a small boost",
@@ -71,6 +76,9 @@ class SearchResult(BaseModel):
     product: str | None = None
     severity: str | None = None
     scenario_id: str | None = None
+    relevance: float | None = Field(
+        None, description="Cross-encoder score from 0 to 1, only when score_relevance was asked for"
+    )
 
 
 class SearchResponse(BaseModel):
@@ -231,6 +239,16 @@ class Searcher:
                     scenario_id=payload.get("scenario_id"),
                 )
             )
+
+        # 5. Optional second opinion on the few results we return. The cross-encoder reads the
+        #    complaint and one source together, which is slower but a different kind of evidence
+        #    than vector similarity. The order is NOT changed (reranking did not help, see evals).
+        if request.score_relevance and results:
+            stage = time.perf_counter()
+            raw = self._embedder.rerank(request.query, [result.text for result in results])
+            for result, value in zip(results, raw, strict=True):
+                result.relevance = round(_sigmoid(value), 4)
+            timings["relevance"] = time.perf_counter() - stage
 
         timings["total"] = time.perf_counter() - started
         for name, seconds in timings.items():
