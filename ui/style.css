@@ -240,6 +240,11 @@ summary.incident-h:focus-visible { outline: 2px solid var(--warn); outline-offse
 .st-key-feedback .stButton button { min-height: 40px; }
 
 /* ---- sign-in page ---- */
+/* Nobody is signed in, so there is no menu to show. Without this, the empty menu of the person
+   who has just signed out stays on the screen. */
+.stApp:has(.st-key-login) [data-testid="stSidebar"],
+.stApp:has(.st-key-login) [data-testid="stSidebarCollapsedControl"],
+.stApp:has(.st-key-login) [data-testid="stExpandSidebarButton"] { display: none; }
 .pitch { min-height: 620px; border-radius: 22px; color: #fff; padding: 44px 46px; display: flex; flex-direction: column;
   background: radial-gradient(520px 380px at 0% 100%, rgba(96, 165, 250, .5), transparent 65%),
               linear-gradient(160deg, var(--s1), var(--s2) 58%, var(--s3)); animation: rise .4s ease both; }

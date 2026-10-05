@@ -129,6 +129,8 @@ The assistant only suggests; the button records what the person really did. The 
 each complaint with both, marks the ones where they differ, and counts how often the suggestion was
 followed. A case left open can be closed later from the Cases page.
 
+![The Cases page, as an expert sees it](images/page-cases-expert.png)
+
 Two things travel with a request, and they answer two different questions:
 
 | Header | Answers | Who has it |

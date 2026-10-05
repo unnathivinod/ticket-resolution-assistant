@@ -111,6 +111,19 @@ The notice when several customers report the same fault within minutes, opened t
 
 ![A possible service incident](docs/images/page-incident.png)
 
+The sign-in page:
+
+![The sign-in page](docs/images/page-signin.png)
+
+The Cases page of an agent, who sees only the cases they handled themselves:
+
+![The Cases page of an agent](docs/images/page-cases.png)
+
+The same page for a second-line expert, who sees the whole desk and who handled each case. One case is
+marked **differs**: the assistant drafted a fix, and the agent escalated instead.
+
+![The Cases page of an expert](docs/images/page-cases-expert.png)
+
 The menu on the left depends on who signed in:
 
 | Page | Who gets it | What it does |
