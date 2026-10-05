@@ -3,6 +3,8 @@
 Endpoints
   POST /v1/resolve    complaint -> labels, sources and a cited resolution   (needs X-API-Key)
   POST /v1/reply      request ID of an earlier answer -> a message for the customer, ready to edit
+  POST /v1/login      username and password -> a session token      (see cases_api.py)
+  GET  /v1/cases      the complaints a signed-in person may see     (see cases_api.py)
   POST /v1/feedback   thumbs up/down, and the right category if ours was wrong
   GET  /health       is the process alive?
   GET  /ready         which dependencies are reachable?
@@ -27,6 +29,8 @@ from libs.common.generation_client import GenerationClient
 from libs.common.observability import add_observability
 from libs.common.retrieval_client import RetrievalClient
 from libs.common.triage_client import TriageClient
+from services.gateway.auth import read_token
+from services.gateway.cases_api import add_case_routes
 from services.gateway.config import Settings
 from services.gateway.data_api import add_data_routes
 from services.gateway.infra import NONE_OF_THESE, IngestQueue, PostgresStore, RedisCache, RedisRateLimiter
@@ -40,7 +44,7 @@ FEEDBACK = Counter("gateway_feedback_total", "Feedback received from agents", ["
 CORRECTIONS = Counter("gateway_category_corrections_total", "Categories corrected by agents", ["kind"])
 # Start every known label at 0, so dashboards show a zero instead of nothing and the
 # first event is counted. (Prometheus cannot see a rise from "does not exist" to 1.)
-for _reason in ("bad_api_key", "not_admin", "rate_limited"):
+for _reason in ("bad_api_key", "not_admin", "rate_limited", "bad_session"):
     REJECTED.labels(_reason)
 for _helpful in ("true", "false"):
     FEEDBACK.labels(_helpful)
@@ -140,6 +144,25 @@ def create_app(
     def admin(request: Request, x_api_key: str | None = Header(None)) -> str:
         return check(request, x_api_key, admin_only=True)
 
+    def person(x_user_token: str | None = Header(None)) -> dict | None:
+        """The signed-in person, or None when the request carries no session token.
+
+        The API key says which application is calling. The token says which person is using it.
+        Scripts and evals send no token, and that is fine. A token that is wrong or expired is not.
+        """
+        if x_user_token is None:
+            return None
+        user = read_token(x_user_token, settings.token_secret)
+        if user is None:
+            REJECTED.labels("bad_session").inc()
+            raise HTTPException(status_code=401, detail="Your session has ended. Sign in again.")
+        return user
+
+    def signed_in(user: dict | None = Depends(person)) -> dict:
+        if user is None:
+            raise HTTPException(status_code=401, detail="Sign in first.")
+        return user
+
     @app.get("/health")
     def health() -> dict:
         return {"status": "ok"}
@@ -153,7 +176,12 @@ def create_app(
         return {"status": "ready", "checks": checks}
 
     @app.post("/v1/resolve")
-    def resolve(body: ResolveRequest, request: Request, caller: str = Depends(authorised)) -> dict:
+    def resolve(
+        body: ResolveRequest,
+        request: Request,
+        caller: str = Depends(authorised),
+        user: dict | None = Depends(person),
+    ) -> dict:
         if not body.complaint.strip():
             raise HTTPException(status_code=422, detail="complaint is empty")
         if len(body.complaint) > settings.max_complaint_chars:
@@ -162,7 +190,11 @@ def create_app(
             )
         try:
             response = request.app.state.orchestrator.resolve(
-                body.complaint, body.generate, body.use_cache, body.track_incident
+                body.complaint,
+                body.generate,
+                body.use_cache,
+                body.track_incident,
+                handled_by=user["username"] if user else None,
             )
         except SearchUnavailableError as error:
             log.error("search unavailable", extra={"fields": {"error": str(error)}})
@@ -173,6 +205,7 @@ def create_app(
                 "fields": {
                     "resolve_id": response["request_id"],
                     "caller": caller,
+                    "handled_by": user["username"] if user else None,
                     "cached": response["meta"]["cached"],
                     "escalate": response["escalate"],
                     "degraded": response["meta"]["degraded"],
@@ -249,6 +282,7 @@ def create_app(
         return {"status": "saved"}
 
     add_data_routes(app, any_key=authorised, admin_key=admin, log=log)
+    add_case_routes(app, any_key=authorised, signed_in=signed_in, settings=settings, log=log)
     return app
 
 

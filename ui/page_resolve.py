@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import streamlit as st
 
-from ui import nav
-from ui.api import GatewayError, call_gateway
+from ui import auth, nav
+from ui.api import GatewayError, call_gateway, record_decision
 from ui.components import (
     cited_ids,
+    decided_html,
     drafting_html,
     incident_html,
     page_title_html,
@@ -36,25 +37,53 @@ def feedback_link(request_id: str) -> None:
         st.page_link(nav.PAGES["feedback"], label="Give feedback", icon=":material/rate_review:")
 
 
+def decide(request_id: str, decision: str) -> None:
+    """Tell the gateway how this case ended, and remember it for the page."""
+    try:
+        record_decision(request_id, decision)
+    except GatewayError as error:
+        st.error(str(error))
+        return
+    st.rerun()
+
+
+def decision_bar(result: dict) -> None:
+    """The foot of the resolution card: what did the agent do with this case in the end?
+
+    The assistant only suggests. The decision is the agent's, and it is what the Cases page lists.
+    """
+    request_id = result["request_id"]
+    decided = st.session_state.get("decisions", {}).get(request_id)
+    with st.container(key="res_foot", **ROW):
+        if decided:
+            st.html(decided_html(decided))
+            if st.button("Change", type="tertiary", key=f"change_{request_id}"):
+                st.session_state["decisions"].pop(request_id, None)
+                st.rerun()
+            return
+        drafted = bool(result["resolution"] and result["resolution"]["steps"])
+        note = (
+            "Review the draft, then record how the case ended."
+            if drafted
+            else "Nothing was drafted. Record how the case ended."
+        )
+        st.html(f'<span class="res-note">{note}</span>')
+        with st.container(key="res_actions", horizontal=True, vertical_alignment="center"):
+            if auth.may("fixes"):
+                st.page_link(nav.PAGES["fixes"], label="Record the real fix", icon=":material/chevron_right:")
+            if st.button("Escalate to second line", icon=":material/arrow_forward:"):
+                decide(request_id, "escalated")
+            if st.button("Mark as resolved", type="primary", icon=":material/check:"):
+                decide(request_id, "resolved")
+
+
 def resolution_card(result: dict) -> None:
     with st.container(key="res"):
         with st.container(key="res_head", horizontal=True, horizontal_alignment="distribute"):
             st.html(resolution_head_html(result))
             feedback_link(result["request_id"])
         st.html(resolution_body_html(result))
-        with st.container(key="res_foot", horizontal=True, horizontal_alignment="distribute"):
-            drafted = bool(result["resolution"] and result["resolution"]["steps"])
-            note = (
-                "A draft for you to review before replying to the customer."
-                if drafted
-                else "Nothing was drafted. The closest sources are listed below."
-            )
-            st.html(f'<span class="res-note">{note}</span>')
-            st.page_link(
-                nav.PAGES["fixes"],
-                label="Solved it another way? Record the real fix" if drafted else "Record the real fix",
-                icon=":material/chevron_right:",
-            )
+        decision_bar(result)
 
 
 def write_reply(request_id: str) -> None:

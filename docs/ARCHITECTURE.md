@@ -89,7 +89,7 @@ flowchart TB
     end
 
     subgraph OBS["Monitoring"]
-        PROM["Prometheus<br/>18 alert rules"] --> GRAF["Grafana dashboard"]
+        PROM["Prometheus<br/>19 alert rules"] --> GRAF["Grafana dashboard"]
     end
 
     GW --> TR
@@ -183,17 +183,17 @@ Seven small programs of our own, plus ready-made infrastructure.
 
 | Service | Port | Its one job | Talks to |
 |---|---|---|---|
-| **Gateway** | 8000 | The only front door. API keys (agent and admin), rate limit, PII masking, cache, runs the steps in order, checkpoints, audit log, feedback, data and class endpoints. | Triage, Retrieval, Generation, Redis, PostgreSQL |
+| **Gateway** | 8000 | The only front door. API keys (agent and admin), sign-in and roles, rate limit, PII masking, cache, runs the steps in order, checkpoints, audit log, cases and decisions, feedback, data and class endpoints. | Triage, Retrieval, Generation, Redis, PostgreSQL |
 | **Triage** | 8001 | Category, product, severity and sentiment, each with a reason or a confidence. Says "unknown" when unsure. | Retrieval, Embedding |
 | **Retrieval** | 8002 | Finds the most similar tickets and KB sections (hybrid search). Also keeps the complaints of the last day and counts the recent ones that mean the same. | Embedding, Qdrant |
 | **Generation** | 8003 | Builds the prompt, calls the LLM, checks the answer. If the model fails it asks the backup model (when one is set), and if that fails too it quotes the source. Also writes the reply to the customer from the checked steps. | Ollama (or a hosted model), Embedding |
 | **Embedding** | 8004 | The only place the small models live: text to dense vector, text to BM25 vector. | none |
 | **Ingestion worker** | 8005 (metrics) | Keeps the search index in step with PostgreSQL. Retries, dead-letter list, safety sweep. | Redis, PostgreSQL, Embedding, Qdrant |
-| **Web page** | 8501 | Paste a complaint, see labels, the drafted fix and its sources, draft the reply to the customer, and give feedback. | Gateway |
+| **Web page** | 8501 | Sign in, paste a complaint, see labels, the drafted fix and its sources, draft the reply to the customer, record how the case ended, list the cases, and give feedback. | Gateway |
 
 | Infrastructure | Why it is there |
 |---|---|
-| **PostgreSQL** | Source of truth: tickets, articles, ticket classes, audit log, feedback, class proposals. |
+| **PostgreSQL** | Source of truth: tickets, articles, ticket classes, audit log (with who handled each case and how it ended), sign-in accounts, feedback, class proposals. |
 | **Qdrant** | Search index. Can always be rebuilt from PostgreSQL. |
 | **Redis** | Answer cache, rate-limit counters, the ingestion queue. |
 | **Ollama** | Runs the LLM locally. No API key, no cost. |
@@ -245,6 +245,9 @@ Other endpoints on the gateway:
 |---|---|---|
 | `POST /v1/reply` | agent | The message for the customer of an earlier answer, by its `request_id`. Built only from steps that passed the source check |
 | `POST /v1/feedback` | agent | Helpful or not, a comment, and the right category if ours was wrong |
+| `POST /v1/login` | anyone with the page's key | Username and password in, a signed session token out (eight hours) |
+| `GET /v1/cases` | signed-in person | The complaints they may see and how each ended. An agent gets their own, an expert or engineer gets everyone's |
+| `POST /v1/cases/{request_id}/decision` | signed-in person | Record that a case was resolved or escalated |
 | (part of `/v1/resolve`) | agent | `incident`: how many recent complaints mean the same, and whether that looks like one wider fault |
 | `GET /v1/taxonomy` | agent | The ticket classes in use |
 | `POST /v1/tickets`, `PUT /v1/kb/{id}`, `DELETE /v1/documents/{id}` | admin | Add, update or retire a ticket or article |
@@ -418,7 +421,7 @@ The full list, with alternatives and the measurements behind them, is in
 
 | # | Checkpoint | If it fails |
 |---|---|---|
-| 1 | API key and rate limit | 401, 403 or 429 |
+| 1 | API key and rate limit. A session token, when sent, must be valid; cases need one | 401, 403 or 429 |
 | 2 | Input validation | 422 with a clear message |
 | 3 | PII masking, before any other service, the cache or the database sees the text | Never skipped |
 | 4 | Triage confidence | Label `unknown`, flag for review |
@@ -428,7 +431,7 @@ The full list, with alternatives and the measurements behind them, is in
 | 8 | Each step is close in meaning to its cited source | Marked "not verified", `grounded: false` |
 | 9 | Step repeats what the customer tried | Flagged |
 | 10 | The customer reply uses only steps that passed 8 and 9 | Other steps are left out and the agent is told how many. No usable step: the reply offers no fix |
-| 11 | A person reviews the draft and the reply | Feedback and category corrections are stored |
+| 11 | A person reviews the draft and the reply, and records how the case ended | Feedback, category corrections and the decision are stored. The share of decisions that follow the suggestion is on the dashboard |
 
 ### 8.2 Evals and what they measured
 
@@ -507,19 +510,20 @@ strict similarity with a low count works best.
 | Question | What is watched | Example alert |
 |---|---|---|
 | Is it up and fast? | `up`, error share, time per stage | A service is down for a minute. More than 5% of requests fail. |
-| Are the answers good? | Share drafted by the model, steps failing the source check, agent feedback, category corrections | More than 40% "not helpful". The model is not being used. |
+| Are the answers good? | Share drafted by the model, steps failing the source check, agent feedback, category corrections, how often agents do what was suggested | More than 40% "not helpful". The model is not being used. |
+| Is someone guessing passwords? | Failed sign-ins | More than 20 in ten minutes. |
 | Has the world changed? | Similarity of the closest match, share escalated, share triage cannot label | Half of recent complaints are below 0.75 similarity. |
 | Is new data arriving? | Queue length, time since the last indexed document, dead letters | Work is waiting and nothing was indexed for 10 minutes. |
 
-- **18 alert rules**, each with what is wrong and what to do first. They have unit tests
+- **19 alert rules**, each with what is wrong and what to do first. They have unit tests
   (`promtool test rules`), run in CI.
 - **One Grafana dashboard**, built from a short Python list. A test checks every query against
   the metric names in the code, so a renamed metric cannot leave a silently empty panel.
 - **`scripts/health_check.py`**: one command that checks every service, sends a real complaint
   and an off-topic question through the gateway, and lists firing alerts.
 - **Logs**: one JSON line per request. The same request ID appears in every service it touched.
-- **CI** (GitHub Actions): code style, 322 fast tests, compose file, Prometheus config and alert tests.
-  23 more tests run against the live system.
+- **CI** (GitHub Actions): code style, 363 fast tests, compose file, Prometheus config and alert tests.
+  24 more tests run against the live system.
 
 ---
 
@@ -535,7 +539,7 @@ strict similarity with a low count works best.
 | **Ingestion** | Redis Streams, one worker | More workers in the same group (`--scale ingestion=3`). Kafka at very high volume. |
 | **Cache** | Exact match, one hour, dropped when the index changes | Per-document invalidation. A semantic cache only with its own eval. |
 | **Reliability** | Timeouts, retries, fallback, fail-open cache and limiter, database sweep | Circuit breakers, several zones, backups of PostgreSQL and Qdrant snapshots |
-| **Security** | Agent and admin API keys, PII masking, non-root containers, ports bound to localhost | Single sign-on with roles, a secret manager, encryption at rest |
+| **Security** | Agent and admin API keys, sign-in with three roles enforced in the gateway, salted slow password hashes, signed session tokens, PII masking, non-root containers, ports bound to localhost | Single sign-on instead of our own passwords, tokens that can be withdrawn at once, a per-person rate limit, a secret manager, encryption at rest |
 | **Prompt injection** | Complaint and sources fenced off as data. Citations limited to real source IDs. | An input classifier and an output filter |
 | **Monitoring** | Prometheus and Grafana on the same machine | Alertmanager to a pager, long-term storage, request tracing |
 | **Versioning** | Model, prompt and index version stored with every answer | A/B tests between prompt or model versions, judged by the same evals |
@@ -556,7 +560,7 @@ strict similarity with a low count works best.
 │   └── GUIDE.md              every address and command
 ├── libs/common/              shared code: logging, metrics, PII masking, service clients
 ├── services/
-│   ├── gateway/              front door, orchestration, data and class endpoints
+│   ├── gateway/              front door, orchestration, sign-in and cases, data and class endpoints
 │   ├── triage/               labels (logic.py holds the rules, signals.yaml the examples)
 │   ├── retrieval/            hybrid search
 │   ├── generation/           prompt, answer checks, fallback
@@ -568,11 +572,11 @@ strict similarity with a low count works best.
 │   ├── scenarios/            40 hand-written problem scenarios (the source of all data)
 │   └── generated/            tickets, articles, test complaints
 ├── scripts/                  generate_data, seed, migrate, demo, health_check, add_document, discover_classes,
-│                             simulate_incident
+│                             simulate_incident, add_user
 ├── evals/                    eval_retrieval, eval_triage, eval_evolving, eval_answers, eval_relevance_gate,
 │                             eval_incidents, results/
 ├── infra/                    PostgreSQL schema, Prometheus rules, Grafana dashboard, CI workflow
-└── tests/                    322 fast tests, 23 tests against the live system
+└── tests/                    363 fast tests, 24 tests against the live system
 ```
 
 How a reviewer runs it (no API key needed):
@@ -581,7 +585,7 @@ How a reviewer runs it (no API key needed):
 cp .env.example .env
 docker compose up -d --build
 docker compose run --rm tools python scripts/seed.py
-# open http://localhost:8501
+# open http://localhost:8501 and sign in: priya / demo1234
 ```
 
 With Ollama installed and `ollama pull llama3.2:3b` done, answers are drafted by the model.
@@ -611,8 +615,8 @@ Each part was built, measured, and changed where the measurement disagreed with 
 | Problem understanding | 15 | Section 1. "Already tried" handling, the agent as reviewer, escalation instead of guessing. |
 | Solution depth, production scale | 25 | Sections 3 to 5 and 9. Read and write paths, fallbacks, queue with sweep, cache versioning, capacity. |
 | Design decisions | 20 | Section 7, section 11, and DESIGN_DECISIONS.md with the measurements. |
-| Code | 25 | Section 10. 345 tests (322 fast, 23 against the running system), CI, typed request models, one-command run. |
-| Checkpoints, evals, monitoring | 15 | Section 8. Eleven checkpoints, six evals, 18 tested alerts, a dashboard, a health check. |
+| Code | 25 | Section 10. 387 tests (363 fast, 24 against the running system), CI, typed request models, one-command run. |
+| Checkpoints, evals, monitoring | 15 | Section 8. Eleven checkpoints, six evals, 19 tested alerts, a dashboard, a health check. |
 
 | Deliverable | Where |
 |---|---|
@@ -640,4 +644,8 @@ Each part was built, measured, and changed where the measurement disagreed with 
   minute on a CPU. The numbers show direction, not precision.
 - **Thresholds were tuned on this dataset** (0.72 cut-off, 0.85 grouping, triage settings).
   They would need re-tuning on real traffic, and after any change of embedding model.
+- **Sign-in is basic.** Our own usernames and passwords with three demo accounts, no single sign-on
+  and no password reset. A session token cannot be withdrawn before it ends, so switching an account
+  off takes up to eight hours to bite. The rate limit is per application key, so all agents on the
+  page share it. A case is one press of Resolve, not a ticket with a history.
 - English only. A small local model is slow and weak compared with hosted ones.

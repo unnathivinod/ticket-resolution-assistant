@@ -538,6 +538,35 @@ new one are counted. Identical words from two customers count once. The test com
 written to differ on purpose, so real outage reports should be easier than the eval suggests,
 but that is not measured.
 
+## Sign-in, roles and cases: who handled what, and how it ended
+
+Until this point the system knew which *application* was calling (an API key) but not which
+*person*. A support desk needs the second: a team lead asks "what did Priya handle today, and
+how did it end?", and an agent should not read a colleague's cases.
+
+| Decision | Chosen | Alternative | Why |
+|---|---|---|---|
+| Two questions, two credentials | The API key says which application is calling. A session token says which person is using it | One of the two for everything | Scripts and evals have no person and must keep working with only a key. The page has a person, and what they may see depends on who they are. |
+| Where the role is enforced | In the gateway, from the signed token | Hide menu items in the page | The page can be bypassed with one `curl`. The page only decides what is worth showing; the gateway decides what is given. |
+| Asking for someone else's case | `404 No such case`, the same answer as for a case that does not exist | `403 Forbidden` | A 403 confirms that the case exists. |
+| Password storage | A salted PBKDF2-SHA256 hash, 200,000 rounds, from Python's standard library | Plain SHA-256, or a library such as bcrypt or argon2 | A fast hash can be guessed billions of times a second. This one is slow on purpose and adds no dependency. Argon2 would be the stronger choice with a library. |
+| Wrong password or unknown user | The same message and the same amount of work for both | "No such user" | Otherwise the answer, or how long it takes, tells an attacker which usernames exist. |
+| The session | A signed token (HMAC-SHA256) holding the name, the role and an end time eight hours away. Nothing is stored | A session table in Redis | Any copy of the gateway can check it without a lookup, so the gateway stays stateless. The cost is under "Known limits". |
+| A wrong or expired token | Refused with 401, and the page returns to sign-in | Treat it as "no person" | Silently ignoring it would file the agent's work under nobody. |
+| What a case is | One press of Resolve by a signed-in person: the audit-log row, plus who handled it | A separate case table with its own life cycle | The audit log already holds the complaint, the labels and the answer. Two columns turn it into a case list. |
+| How a case ends | The agent presses Resolved or Escalated; it can be changed, and closed later from the Cases page | Infer it from the answer | The assistant suggests, a person decides. What the person did is the fact worth storing. |
+| What is learned from it | "Suggestion followed": the share of decided cases in which the agent did what the assistant suggested. On the Cases page, on the dashboard, and in the log | Only the Helpful / Not helpful buttons | Feedback is an opinion that few people bother to give. The decision is behaviour, recorded for every case as part of the work. |
+| Who sees what | Agent: own cases. Expert and engineer: all cases, with the handler's name | Everyone sees everything | Least privilege. The people who take escalations and run the system need the whole picture; an agent needs their own list. |
+| Guessing passwords | Failed sign-ins are counted, with an alert at more than 20 in ten minutes, on top of the per-key rate limit | Lock the account after N failures | A lock lets anyone lock a colleague out by typing their name. It belongs with a real identity provider. |
+| Demo accounts | Three, one per role, created by the database migration, with one shared password that is written in the README and not on the sign-in page | No accounts until someone runs a script | A reviewer must be able to try all three roles in a minute. The password is public by design, and the documents say so. |
+
+Known limits: this is our own small sign-in, where a company would plug in its single sign-on.
+There is no password reset. A token cannot be withdrawn before it ends, so an account that is
+switched off keeps working for up to eight hours (short tokens with renewal, or a list of
+withdrawn tokens in Redis, would fix that). The rate limit is still per application key, so all
+agents on the page share it. Refreshing the browser signs the person out, because the page keeps
+the token only in memory. "Suggestion followed" has no history yet to say what a good value is.
+
 ## Monitoring: knowing when it stops working
 
 An AI system can fail without any error: every request returns 200 while the answers quietly get

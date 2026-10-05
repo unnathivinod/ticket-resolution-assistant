@@ -161,6 +161,15 @@ groups:
           summary: "Several customers reported the same problem within a few minutes"
           action: "Probably one fault that affects many customers. Find the complaints in the gateway log (incident: true), check for a known outage and tell the duty manager."
 
+      # A few typing mistakes a day are normal. Dozens in ten minutes is somebody guessing.
+      - alert: ManyFailedSignIns
+        expr: sum(increase(gateway_logins_total{result="failed"}[10m])) > 20
+        labels:
+          severity: warning
+        annotations:
+          summary: "More than 20 failed sign-ins in ten minutes"
+          action: "Someone may be guessing passwords. Search the gateway log for 'sign-in failed' to see the username, then switch that account off with scripts/add_user.py <username> --off."
+
   # ---- Is new data reaching the search index? ------------------------------------------------
   - name: ingestion
     rules:

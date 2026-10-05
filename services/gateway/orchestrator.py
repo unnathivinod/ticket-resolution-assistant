@@ -140,7 +140,12 @@ class Orchestrator:
         }
 
     def resolve(
-        self, complaint: str, generate: bool = True, use_cache: bool = True, track_incident: bool = True
+        self,
+        complaint: str,
+        generate: bool = True,
+        use_cache: bool = True,
+        track_incident: bool = True,
+        handled_by: str | None = None,  # the signed-in person, when there is one
     ) -> dict:
         settings = self._settings
         started = time.perf_counter()
@@ -162,7 +167,7 @@ class Orchestrator:
                 response["incident"] = self._incident(masked) if track_incident else None
                 response["meta"] = {**cached["meta"], "cached": True}
                 response["meta"]["latency_ms"] = {"total": round((time.perf_counter() - started) * 1000, 1)}
-                self._audit(request_id, masked, response)
+                self._audit(request_id, masked, response, handled_by)
                 OUTCOMES.labels("cached").inc()
                 return response
 
@@ -278,7 +283,7 @@ class Orchestrator:
 
         if generate:
             # 7. Audit log and cache. Only complete, healthy answers are cached.
-            self._audit(request_id, masked, response)
+            self._audit(request_id, masked, response, handled_by)
             if response["resolution"] is not None and not degraded:
                 self._cache.set(cache_key, response)
             if degraded:
@@ -294,7 +299,7 @@ class Orchestrator:
             OUTCOMES.labels("analyzed_only").inc()
         return response
 
-    def _audit(self, request_id: str, masked: str, response: dict) -> None:
+    def _audit(self, request_id: str, masked: str, response: dict, handled_by: str | None = None) -> None:
         resolution = response["resolution"]
         self._store.save_request(
             {
@@ -309,6 +314,8 @@ class Orchestrator:
                 "llm_model": response["meta"]["model"],
                 "prompt_version": response["meta"]["prompt_version"],
                 "index_version": response["meta"].get("index_version"),
+                "handled_by": handled_by,
+                "incident": (response.get("incident") or {}).get("detected"),
             }
         )
 

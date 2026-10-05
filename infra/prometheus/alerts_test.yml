@@ -189,6 +189,38 @@ tests:
         alertname: PossibleIncident
         exp_alerts: []
 
+  # Someone tries password after password: 3 failed sign-ins a minute for a quarter of an hour.
+  - interval: 1m
+    input_series:
+      - series: 'gateway_logins_total{result="failed"}'
+        values: "0x5 3+3x15 48x40"
+      - series: 'gateway_logins_total{result="ok"}'
+        values: "0+1x61"
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: ManyFailedSignIns
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "More than 20 failed sign-ins in ten minutes"
+              action: "Someone may be guessing passwords. Search the gateway log for 'sign-in failed' to see the username, then switch that account off with scripts/add_user.py <username> --off."
+      - eval_time: 45m
+        alertname: ManyFailedSignIns
+        exp_alerts: []
+
+  # A normal morning: people sign in, and a few of them mistype their password once.
+  - interval: 1m
+    input_series:
+      - series: 'gateway_logins_total{result="failed"}'
+        values: "0x10 1x10 2x10 3x30"
+      - series: 'gateway_logins_total{result="ok"}'
+        values: "0+1x60"
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: ManyFailedSignIns
+        exp_alerts: []
+
   # Agents: 6 of 12 ratings in the last hours were "not helpful". Only 3 ratings would be too few to alert.
   - interval: 10m
     input_series:

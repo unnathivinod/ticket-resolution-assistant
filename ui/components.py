@@ -347,3 +347,134 @@ def drafting_html() -> str:
         '<span class="badge info">Drafting the fix ...</span></div>'
         f'<div class="bones">{lines}</div></section>'
     )
+
+
+# ---- sign-in ---------------------------------------------------------------------------------
+
+
+def login_pitch_html() -> str:
+    """The left half of the sign-in page: what the tool is, in three lines."""
+    points = "".join(
+        f"<li><i>{icon('check')}</i>{text}</li>"
+        for text in (
+            "Checked citations on every step",
+            "Escalates when it has no fix",
+            "Spots a possible service incident",
+        )
+    )
+    return (
+        f'<section class="pitch"><div class="brand"><div class="mark">{icon("chat")}</div>'
+        "<div><b>Support Assistant</b><span>Telecom support desk</span></div></div>"
+        "<h1>Resolve every complaint with the evidence in front of you.</h1>"
+        "<p>Labels, similar past cases and a drafted fix in one screen. "
+        "Every step names the ticket or article it came from.</p>"
+        f"<ul>{points}</ul>"
+        "<small>Internal tool. Personal details are masked before anything is stored.</small></section>"
+    )
+
+
+def login_title_html() -> str:
+    return '<div class="login-h"><h1>Sign in</h1><span>Use your support desk account.</span></div>'
+
+
+def who_html(user: dict, role_name: str) -> str:
+    """The signed-in person at the foot of the side menu."""
+    initials = "".join(part[:1] for part in user["name"].split()[:2]).upper() or "?"
+    return (
+        f'<div class="who"><div class="who-a">{esc(initials)}</div>'
+        f"<div><b>{esc(user['name'])}</b><span>{esc(role_name)}</span></div></div>"
+    )
+
+
+# ---- cases: how each complaint ended -----------------------------------------------------------
+
+DECISIONS = {"resolved": ("Resolved", "res", "check"), "escalated": ("Escalated", "esc", "arrow")}
+
+
+def ago(minutes: int) -> str:
+    """'just now', '12 min ago', '3 h ago', '2 d ago'."""
+    if minutes < 1:
+        return "just now"
+    if minutes < 60:
+        return f"{minutes} min ago"
+    return f"{minutes // 60} h ago" if minutes < 60 * 24 else f"{minutes // (60 * 24)} d ago"
+
+
+def decision_html(decision: str | None) -> str:
+    """The badge for how a case ended. No decision yet shows as 'Open'."""
+    if decision not in DECISIONS:
+        return '<span class="state open">Open</span>'
+    label, kind, icon_name = DECISIONS[decision]
+    return f'<span class="state {kind}">{icon(icon_name)}{label}</span>'
+
+
+def decided_html(decision: str) -> str:
+    """Under the fix, once the agent has recorded how the case ended."""
+    return (
+        f'<span class="res-note decided">{decision_html(decision)}<span>Recorded for this case.</span></span>'
+    )
+
+
+def case_counters_html(totals: dict, scope: str, period: str) -> str:
+    """The five numbers on top of the Cases page."""
+    handled, decided = totals["handled"], totals["resolved"] + totals["escalated"]
+
+    def share(count: int) -> str:
+        return f"{count / handled:.0%} of handled" if handled else "none yet"
+
+    rate = totals.get("followed_rate")
+    followed = (
+        f"<strong>{rate:.0%}</strong><span>of {decided} decided case{'' if decided == 1 else 's'}</span>"
+        if rate is not None
+        else "<strong>&ndash;</strong><span>no case has been decided yet</span>"
+    )
+    whose = "Handled by you" if scope == "mine" else "Handled on the desk"
+
+    def counter(name: str, number: int, note: str) -> str:
+        return f'<div class="kpi"><small>{name}</small><strong>{number}</strong><span>{note}</span></div>'
+
+    return (
+        '<div class="kpis">'
+        + counter(whose, handled, esc(period.lower()))
+        + counter("Resolved", totals["resolved"], share(totals["resolved"]))
+        + counter("Escalated", totals["escalated"], share(totals["escalated"]))
+        + counter("Open", totals["open"], "no decision yet")
+        + f'<div class="kpi accent"><small>Suggestion followed</small>{followed}</div></div>'
+    )
+
+
+def cases_table_html(items: list[dict], show_handler: bool) -> str:
+    """The list of cases. `show_handler` adds the column that only experts and engineers get."""
+    if not items:
+        return (
+            '<section class="card cases"><div class="empty">No cases here yet. Resolve a complaint, '
+            "then record how it ended.</div></section>"
+        )
+    layout = "all" if show_handler else "mine"
+    head = "".join(
+        f"<span>{name}</span>"
+        for name in ("When", "Complaint", "Category", "Severity", "Assistant suggested", "Decision")
+    ) + ("<span>Handled by</span>" if show_handler else "")
+    rows = []
+    for item in items:
+        fix = item["fix_suggested"]
+        suggested = f"{icon('check')}Fix drafted" if fix else f"{icon('arrow')}Escalate"
+        # "differs" marks a case in which the person did not do what the assistant suggested.
+        differs = item["decision"] is not None and (item["decision"] == "resolved") != fix
+        severity = item.get("severity") or ""
+        mark = "<small><i></i>Part of a possible incident</small>" if item.get("incident") else ""
+        handler = f'<span class="by">{esc(item.get("handled_by_name") or "")}</span>' if show_handler else ""
+        rows.append(
+            f'<div class="case"><time>{ago(int(item["minutes_ago"]))}</time>'
+            f'<div class="case-c"><p>{esc(item["complaint"])}</p>{mark}</div>'
+            f'<span class="chip">{esc(pretty(item.get("category")) or "Unlabelled")}</span>'
+            f'<span class="sev {esc(severity)}">{esc(pretty(severity))}</span>'
+            f'<span class="sug">{suggested}</span>'
+            f'<span class="dec">{decision_html(item["decision"])}'
+            f"{'<em>differs</em>' if differs else ''}</span>{handler}</div>"
+        )
+    count = f"{len(items)} case{'' if len(items) == 1 else 's'}. Personal details are masked."
+    return (
+        f'<section class="card cases {layout}"><div class="case head">{head}</div>'
+        f'{"".join(rows)}<div class="cases-f">{count}</div></section>'
+    )

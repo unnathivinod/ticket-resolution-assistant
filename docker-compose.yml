@@ -19,6 +19,7 @@ services:
       # Runs once, the first time the database is created, to build the tables
       - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
       - ./infra/postgres/migrations/002_evolving_data.sql:/docker-entrypoint-initdb.d/02_evolving_data.sql:ro
+      - ./infra/postgres/migrations/003_users_and_cases.sql:/docker-entrypoint-initdb.d/03_users_and_cases.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
@@ -165,6 +166,8 @@ services:
       GATEWAY_API_KEYS: ${API_KEYS:-dev-local-key}
       GATEWAY_ADMIN_API_KEYS: ${ADMIN_API_KEYS:-dev-admin-key}
       GATEWAY_MIN_RELEVANCE: ${MIN_RELEVANCE:-0}
+      # Signs the session tokens of signed-in people. Change it for anything but a local demo.
+      GATEWAY_TOKEN_SECRET: ${TOKEN_SECRET:-dev-token-secret}
       # Incident detection: this many complaints that mean the same, inside the time window.
       GATEWAY_INCIDENT_MIN_SIMILAR: ${INCIDENT_MIN_SIMILAR:-3}
       GATEWAY_INCIDENT_WINDOW_MINUTES: ${INCIDENT_WINDOW_MINUTES:-30}

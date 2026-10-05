@@ -18,6 +18,10 @@ class Settings(BaseSettings):
     # Keys that may also change data: add tickets and articles, manage ticket classes.
     admin_api_keys: str = "dev-admin-key"
     admin_rate_limit_per_minute: int = 600  # bulk loads send many requests
+    # Signing in. The secret signs the session tokens: anyone who knows it can pretend to be any
+    # user, so in production it comes from a secret manager, like the API keys.
+    token_secret: str = "dev-token-secret"
+    session_minutes: int = 480  # a working day, then the person signs in again
     ingest_stream: str = "ingest:events"
     cache_ttl_seconds: int = 3600
 

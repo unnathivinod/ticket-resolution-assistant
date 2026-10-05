@@ -654,6 +654,165 @@
     },
     {
       "id": 14,
+      "type": "timeseries",
+      "title": "Agents who did what the assistant suggested",
+      "description": "Of the cases a person closed in the last 6 hours: how often they resolved it when a fix was drafted, or escalated when the assistant said to escalate. A falling line means agents trust the drafts less.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 34
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": {
+            "fillOpacity": 8,
+            "lineWidth": 2,
+            "showPoints": "never"
+          },
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(gateway_case_decisions_total{followed=\"true\"}[6h])) / sum(increase(gateway_case_decisions_total[6h]))",
+          "legendFormat": "followed",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "How cases ended",
+      "description": "What agents recorded for each case, per hour.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 34
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "fillOpacity": 20,
+            "lineWidth": 2,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (decision) (increase(gateway_case_decisions_total[1h]))",
+          "legendFormat": "{{decision}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "Sign-ins",
+      "description": "Per hour. Many failed sign-ins at once can mean somebody is guessing a password.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 34
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "fillOpacity": 20,
+            "lineWidth": 2,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (result) (increase(gateway_logins_total[1h]))",
+          "legendFormat": "{{result}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 17,
       "type": "row",
       "title": "Is the data still familiar? (drift)",
       "collapsed": false,
@@ -661,12 +820,12 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 34
+        "y": 42
       },
       "panels": []
     },
     {
-      "id": 15,
+      "id": 18,
       "type": "timeseries",
       "title": "Similarity of the closest match",
       "description": "Normal is about 0.83. A falling line means customers ask about new things.",
@@ -678,7 +837,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 35
+        "y": 43
       },
       "fieldConfig": {
         "defaults": {
@@ -725,7 +884,7 @@
       ]
     },
     {
-      "id": 16,
+      "id": 19,
       "type": "timeseries",
       "title": "Complaints with no confident match",
       "description": "Share that was escalated because nothing similar exists in the knowledge base.",
@@ -737,7 +896,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 35
+        "y": 43
       },
       "fieldConfig": {
         "defaults": {
@@ -776,7 +935,7 @@
       ]
     },
     {
-      "id": 17,
+      "id": 20,
       "type": "timeseries",
       "title": "Triage could not decide",
       "description": "Share of complaints labelled 'unknown'. Normal is under 10% for category.",
@@ -788,7 +947,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 35
+        "y": 43
       },
       "fieldConfig": {
         "defaults": {
@@ -827,7 +986,7 @@
       ]
     },
     {
-      "id": 18,
+      "id": 21,
       "type": "timeseries",
       "title": "Categories seen",
       "description": "The mix of problem types. A category that suddenly grows is worth a look.",
@@ -839,7 +998,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 43
+        "y": 51
       },
       "fieldConfig": {
         "defaults": {
@@ -881,7 +1040,7 @@
       ]
     },
     {
-      "id": 19,
+      "id": 22,
       "type": "timeseries",
       "title": "Severity seen",
       "description": "A jump in high or critical complaints usually means an outage.",
@@ -893,7 +1052,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 43
+        "y": 51
       },
       "fieldConfig": {
         "defaults": {
@@ -935,7 +1094,7 @@
       ]
     },
     {
-      "id": 20,
+      "id": 23,
       "type": "row",
       "title": "Language model and cache",
       "collapsed": false,
@@ -943,12 +1102,12 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 51
+        "y": 59
       },
       "panels": []
     },
     {
-      "id": 21,
+      "id": 24,
       "type": "timeseries",
       "title": "Model time per answer",
       "description": "About a minute on a laptop CPU. A GPU or a hosted model brings this to seconds.",
@@ -960,7 +1119,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 52
+        "y": 60
       },
       "fieldConfig": {
         "defaults": {
@@ -1007,7 +1166,7 @@
       ]
     },
     {
-      "id": 22,
+      "id": 25,
       "type": "timeseries",
       "title": "Tokens per minute",
       "description": "What a hosted model would bill for. prompt = read, completion = written.",
@@ -1019,7 +1178,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 52
+        "y": 60
       },
       "fieldConfig": {
         "defaults": {
@@ -1057,7 +1216,7 @@
       ]
     },
     {
-      "id": 23,
+      "id": 26,
       "type": "timeseries",
       "title": "Answers served from the cache",
       "description": "Repeated complaints answered instantly. It drops to zero after the index changes.",
@@ -1069,7 +1228,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 52
+        "y": 60
       },
       "fieldConfig": {
         "defaults": {
@@ -1108,7 +1267,7 @@
       ]
     },
     {
-      "id": 24,
+      "id": 27,
       "type": "row",
       "title": "New data and dependencies",
       "collapsed": false,
@@ -1116,12 +1275,12 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 60
+        "y": 68
       },
       "panels": []
     },
     {
-      "id": 25,
+      "id": 28,
       "type": "timeseries",
       "title": "Documents indexed per minute",
       "description": "indexed, removed, retry or dead_letter.",
@@ -1133,7 +1292,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 61
+        "y": 69
       },
       "fieldConfig": {
         "defaults": {
@@ -1175,7 +1334,7 @@
       ]
     },
     {
-      "id": 26,
+      "id": 29,
       "type": "timeseries",
       "title": "Waiting to be indexed",
       "description": "Document changes on the queue. It should fall back to zero quickly.",
@@ -1187,7 +1346,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 61
+        "y": 69
       },
       "fieldConfig": {
         "defaults": {
@@ -1225,7 +1384,7 @@
       ]
     },
     {
-      "id": 27,
+      "id": 30,
       "type": "timeseries",
       "title": "Given up on or repaired (last hour)",
       "description": "dead letters = failed 5 times. repaired = found by the safety sweep, not the queue.",
@@ -1237,7 +1396,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 61
+        "y": 69
       },
       "fieldConfig": {
         "defaults": {
@@ -1284,7 +1443,7 @@
       ]
     },
     {
-      "id": 28,
+      "id": 31,
       "type": "timeseries",
       "title": "Requests refused",
       "description": "bad_api_key, not_admin or rate_limited.",
@@ -1296,7 +1455,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 69
+        "y": 77
       },
       "fieldConfig": {
         "defaults": {
@@ -1334,7 +1493,7 @@
       ]
     },
     {
-      "id": 29,
+      "id": 32,
       "type": "timeseries",
       "title": "Answered without a service",
       "description": "The gateway carried on without triage or without generation.",
@@ -1346,7 +1505,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 69
+        "y": 77
       },
       "fieldConfig": {
         "defaults": {
@@ -1384,7 +1543,7 @@
       ]
     },
     {
-      "id": 30,
+      "id": 33,
       "type": "timeseries",
       "title": "Redis and PostgreSQL errors",
       "description": "cache, rate_limiter, queue or audit_log.",
@@ -1396,7 +1555,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 69
+        "y": 77
       },
       "fieldConfig": {
         "defaults": {

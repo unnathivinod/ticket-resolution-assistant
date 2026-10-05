@@ -140,6 +140,7 @@ class InMemoryStore:
         self.documents: dict[str, dict[str, dict]] = {"ticket": {}, "kb": {}}
         self.proposal_rows: list[dict] = []
         self._clock = 0
+        self.users: dict[str, dict] = {}
 
     def _tick(self) -> int:
         self._clock += 1
@@ -155,6 +156,79 @@ class InMemoryStore:
 
     def get_request(self, request_id):
         return next((record for record in self.requests if record["request_id"] == request_id), None)
+
+    # sign-in accounts and cases
+    def add_user(self, username, display_name, role, password_hash, is_active=True) -> None:
+        self.users[username] = {
+            "username": username,
+            "display_name": display_name,
+            "role": role,
+            "password_hash": password_hash,
+            "is_active": is_active,
+        }
+
+    def get_user(self, username):
+        user = self.users.get(username)
+        if user is None or not user["is_active"]:
+            return None
+        return {key: value for key, value in user.items() if key != "is_active"}
+
+    @staticmethod
+    def _fix_suggested(record: dict) -> bool:
+        return bool((record.get("resolution") or {}).get("steps")) and not record.get("escalated")
+
+    def list_cases(self, handled_by, hours=24, status="all", limit=100) -> dict:
+        cases = [
+            record
+            for record in self.requests
+            if record.get("handled_by") and handled_by in (None, record["handled_by"])
+        ]
+        totals = {
+            "handled": len(cases),
+            "resolved": sum(case.get("decision") == "resolved" for case in cases),
+            "escalated": sum(case.get("decision") == "escalated" for case in cases),
+            "open": sum(case.get("decision") is None for case in cases),
+            "followed": sum(
+                case.get("decision") is not None
+                and (case["decision"] == "resolved") == self._fix_suggested(case)
+                for case in cases
+            ),
+        }
+        wanted = [
+            case for case in cases[::-1] if status == "all" or (case.get("decision") or "open") == status
+        ]
+        items = [
+            {
+                "request_id": case["request_id"],
+                "complaint": case["complaint_masked"],
+                "category": ((case.get("triage") or {}).get("category") or {}).get("label"),
+                "severity": ((case.get("triage") or {}).get("severity") or {}).get("label"),
+                "fix_suggested": self._fix_suggested(case),
+                "incident": bool(case.get("incident")),
+                "decision": case.get("decision"),
+                "handled_by": case["handled_by"],
+                "handled_by_name": (self.users.get(case["handled_by"]) or {}).get(
+                    "display_name", case["handled_by"]
+                ),
+                "minutes_ago": 0,
+            }
+            for case in wanted[:limit]
+        ]
+        return {"totals": totals, "items": items}
+
+    def decide_case(self, request_id, decision, username, any_case):
+        case = self.get_request(request_id)
+        if case is None or not case.get("handled_by"):
+            return None
+        if not any_case and case["handled_by"] != username:
+            return None
+        case["decision"], case["decided_by"] = decision, username
+        return {
+            "request_id": request_id,
+            "decision": decision,
+            "decided_by": username,
+            "followed": (decision == "resolved") == self._fix_suggested(case),
+        }
 
     def save_feedback(self, request_id, helpful, comment, edited, correct_category=None) -> bool:
         if request_id not in {record["request_id"] for record in self.requests}:

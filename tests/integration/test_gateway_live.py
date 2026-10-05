@@ -114,3 +114,36 @@ def test_every_complaint_is_checked_for_a_possible_incident(http):
 
     opted_out = http.post("/v1/resolve", json={**body, "track_incident": False}, headers=KEY).json()
     assert opted_out["incident"] is None
+
+
+def test_a_signed_in_agent_gets_a_case_and_records_how_it_ended(http):
+    # Uses the demo agent account that migration 003 creates. If this fails with 401, run:
+    #   docker compose run --rm tools python scripts/migrate.py
+    signed = http.post("/v1/login", json={"username": "priya", "password": "demo1234"}, headers=KEY)
+    assert signed.status_code == 200, signed.text
+    assert signed.json()["user"]["role"] == "agent"
+    priya = {**KEY, "X-User-Token": signed.json()["token"]}
+    wrong = http.post("/v1/login", json={"username": "priya", "password": "not-this"}, headers=KEY)
+    assert wrong.status_code == 401
+
+    # Off-topic on purpose: it is stopped before the model is asked, so this test stays fast.
+    body = {"complaint": "What is the best recipe for a lemon cake?"}
+    request_id = http.post("/v1/resolve", json=body, headers=priya).json()["request_id"]
+    by_script = http.post("/v1/resolve", json=body, headers=KEY).json()["request_id"]
+
+    mine = http.get("/v1/cases", headers=priya).json()
+    listed = {item["request_id"]: item for item in mine["items"]}
+    assert mine["scope"] == "mine" and request_id in listed and by_script not in listed
+    assert listed[request_id]["decision"] is None and listed[request_id]["fix_suggested"] is False
+    assert {item["handled_by"] for item in mine["items"]} == {"priya"}
+
+    saved = http.post(f"/v1/cases/{request_id}/decision", json={"decision": "escalated"}, headers=priya)
+    assert saved.status_code == 200 and saved.json()["decided_by"] == "priya"
+    assert saved.json()["followed"] is True  # the assistant had no fix and said "escalate"
+    escalated = http.get("/v1/cases", params={"status": "escalated"}, headers=priya).json()["items"]
+    assert request_id in {item["request_id"] for item in escalated}
+
+    # A request made without a person is nobody's case, and the list needs a person at all.
+    refused = http.post(f"/v1/cases/{by_script}/decision", json={"decision": "resolved"}, headers=priya)
+    assert refused.status_code == 404
+    assert http.get("/v1/cases", headers=KEY).status_code == 401

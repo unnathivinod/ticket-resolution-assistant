@@ -19,7 +19,7 @@ reference behind it: every address, every command, and what each one shows.
 
 | Service | URL |
 |---|---|
-| **Agent web page** | http://localhost:8501 |
+| **Agent web page** (sign in with `priya` / `demo1234`) | http://localhost:8501 |
 | **Gateway API** (the only API a client needs, docs) | http://localhost:8000/docs |
 | Qdrant dashboard | http://localhost:6333/dashboard |
 | PostgreSQL | localhost:5432 |
@@ -36,7 +36,8 @@ If a port is already used on your machine, change it in `.env` (for example `RED
 
 ## Three ways to send a complaint
 
-**In the browser:** http://localhost:8501
+**In the browser:** http://localhost:8501, signed in with one of the
+[demo accounts](#signing-in-roles-and-the-cases-page).
 
 **From the command line:**
 
@@ -112,18 +113,78 @@ Then resolve the complaint the script prints, on the page or with `/v1/resolve`.
 
 Counted in `gateway_incident_checks_total`, by `clear`, `flagged` or `failed`.
 
+## Signing in, roles and the Cases page
+
+The web page asks for a username and a password. Three demo accounts exist straight after setup.
+They share one password, `demo1234`, which is public on purpose:
+
+| Username | Role | Menu | Cases they see |
+|---|---|---|---|
+| `priya` | Agent | Resolve, Cases, Feedback | Only their own |
+| `arun` | Second-line expert | the same, plus Record a fix | Everyone's, with a "Handled by" column |
+| `meera` | Engineer | the same, plus Monitoring | Everyone's |
+
+Under every drafted fix there are two buttons: **Mark as resolved** and **Escalate to second line**.
+The assistant only suggests; the button records what the person really did. The **Cases** page lists
+each complaint with both, marks the ones where they differ, and counts how often the suggestion was
+followed. A case left open can be closed later from the Cases page.
+
+Two things travel with a request, and they answer two different questions:
+
+| Header | Answers | Who has it |
+|---|---|---|
+| `X-API-Key` | Which application is calling? | The web page, a script, an eval |
+| `X-User-Token` | Which person is using it? | Only someone who signed in. Valid for eight hours |
+
+Scripts and evals send no token and work as before. Their requests belong to nobody and are never
+listed as cases.
+
+```bash
+# Sign in. The answer contains a token.
+curl -X POST http://localhost:8000/v1/login \
+  -H "X-API-Key: dev-local-key" -H "Content-Type: application/json" \
+  -d '{"username": "priya", "password": "demo1234"}'
+
+# The cases this person may see (status: all, open, resolved, escalated; hours: how far back).
+curl "http://localhost:8000/v1/cases?status=open&hours=24" \
+  -H "X-API-Key: dev-local-key" -H "X-User-Token: <token>"
+
+# Record how a case ended. <request_id> comes from the /v1/resolve answer.
+curl -X POST http://localhost:8000/v1/cases/<request_id>/decision \
+  -H "X-API-Key: dev-local-key" -H "X-User-Token: <token>" -H "Content-Type: application/json" \
+  -d '{"decision": "resolved"}'
+```
+
+An agent who asks for another agent's case gets `404 No such case`, the same answer as for a case
+that does not exist.
+
+Accounts are added, given a new password, and switched off with a script (it asks for the password
+and stores only a hash). Do this for the three demo accounts before real people use the system:
+
+```bash
+docker compose run --rm tools python scripts/add_user.py kavya agent "Kavya M"
+docker compose run --rm tools python scripts/add_user.py priya --off
+```
+
+| Setting in `.env` | What it does |
+|---|---|
+| `TOKEN_SECRET` | Signs the session tokens. Use a long random value anywhere but a local demo |
+
+A database that existed before this feature gets the new tables with
+`docker compose run --rm tools python scripts/migrate.py` (safe to run twice). A new one has them from the start.
+
 ## What the gateway does on every request
 
 | Step | What happens | If it goes wrong |
 |---|---|---|
-| 1. Check the caller | API key, then a per-key limit of 30 requests a minute | 401 or 429 |
+| 1. Check the caller | API key, then a per-key limit of 30 requests a minute. If a session token is sent, it must be valid | 401 or 429 |
 | 2. Mask personal details | Emails, phone and account numbers are replaced before anything else sees them | |
 | 3. Cache | A complaint already answered in the last hour is returned at once | Cache down: carry on without it |
 | 4. Triage | Category, product, severity, sentiment | Triage down: answer without labels |
 | 5. Search | Similar tickets and articles | Search down: 503, there is nothing to answer from |
 | 6. Checkpoint | Nothing similar enough found: no answer is drafted, escalation is recommended | |
 | 7. Draft | Cited, checked resolution | Drafting down: return the sources, recommend escalation |
-| 8. Record | Request, answer and timings go to the `resolve_requests` table; agent feedback to `feedback` | Database down: still answer, count the error |
+| 8. Record | Request, answer, timings and the signed-in person go to the `resolve_requests` table; agent feedback to `feedback` | Database down: still answer, count the error |
 
 ## Choosing the language model
 
@@ -300,8 +361,8 @@ the gateway, checks that new data is not stuck, and lists any alert that is firi
 
 | Where | What you see |
 |---|---|
-| http://localhost:3000 | One dashboard with 25 panels in five rows: up and fast enough, answer quality, drift, language model and cache, new data |
-| http://localhost:9090/alerts | 18 alert rules, each with what is wrong and what to do first |
+| http://localhost:3000 | One dashboard with 28 panels in five rows: up and fast enough, answer quality, drift, language model and cache, new data |
+| http://localhost:9090/alerts | 19 alert rules, each with what is wrong and what to do first |
 | `docker compose logs gateway` | One JSON line per request. The same `request_id` appears in every service the request touched |
 
 What the alerts watch, in plain words:
@@ -309,6 +370,7 @@ What the alerts watch, in plain words:
 | Question | Examples |
 |---|---|
 | Is it up and fast? | a service is down, more than 5% of requests fail, answers take over two minutes |
+| Is someone guessing passwords? | more than 20 failed sign-ins in ten minutes |
 | Are the answers still good? | the model is not being used, steps fail the source check, agents say "not helpful", agents keep correcting the category |
 | Has the world changed? | complaints are no longer similar to anything indexed, too many escalations, agents say "none of the categories fits", several customers report the same fault within minutes |
 | Is new data arriving? | the queue is growing, nothing indexed for 10 minutes, a document was given up on |

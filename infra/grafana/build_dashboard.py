@@ -151,6 +151,37 @@ ROWS = [
                 ],
                 "width": 8,
             },
+            {
+                "title": "Agents who did what the assistant suggested",
+                "help": "Of the cases a person closed in the last 6 hours: how often they resolved it "
+                "when a fix was drafted, or escalated when the assistant said to escalate. "
+                "A falling line means agents trust the drafts less.",
+                "unit": "percentunit",
+                "queries": [
+                    (
+                        'sum(increase(gateway_case_decisions_total{followed="true"}[6h]))'
+                        " / sum(increase(gateway_case_decisions_total[6h]))",
+                        "followed",
+                    )
+                ],
+                "width": 8,
+            },
+            {
+                "title": "How cases ended",
+                "help": "What agents recorded for each case, per hour.",
+                "stack": True,
+                "queries": [
+                    ("sum by (decision) (increase(gateway_case_decisions_total[1h]))", "{{decision}}")
+                ],
+                "width": 8,
+            },
+            {
+                "title": "Sign-ins",
+                "help": "Per hour. Many failed sign-ins at once can mean somebody is guessing a password.",
+                "stack": True,
+                "queries": [("sum by (result) (increase(gateway_logins_total[1h]))", "{{result}}")],
+                "width": 8,
+            },
         ],
     ),
     (

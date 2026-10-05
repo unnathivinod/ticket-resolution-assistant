@@ -2,13 +2,14 @@
 
 Closing the loop: once an expert has solved a new problem, saving it teaches the system. The
 next agent who gets the same kind of complaint is shown this fix a few seconds after it is
-saved. Nothing is retrained. In production this page would sit behind an expert login.
+saved. Nothing is retrained. Only people signed in as expert or engineer get this page.
 """
 
 from __future__ import annotations
 
 import streamlit as st
 
+from ui import auth
 from ui.api import ADMIN_KEY, GatewayError, call_gateway, taxonomy
 from ui.components import notice, page_title_html
 
@@ -75,6 +76,9 @@ def show() -> None:
             "Record how a case was really solved. The next agent gets it as a suggestion.",
         )
     )
+    if not auth.may("fixes"):
+        st.html(notice("Recording a fix is for second-line support. Ask an expert to record it.", "info"))
+        return
     classes = taxonomy()
     if not ADMIN_KEY:
         st.html(notice("This page needs a second-line key. Set UI_ADMIN_API_KEY in .env.", "info"))

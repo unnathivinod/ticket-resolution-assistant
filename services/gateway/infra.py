@@ -151,8 +151,9 @@ class PostgresStore:
                 conn.execute(
                     """INSERT INTO resolve_requests
                            (request_id, complaint_masked, triage, source_ids, resolution, grounded,
-                            escalated, latency_ms, llm_model, prompt_version, index_version)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                            escalated, latency_ms, llm_model, prompt_version, index_version,
+                            handled_by, incident)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                     (
                         record["request_id"],
                         record["complaint_masked"],
@@ -165,6 +166,8 @@ class PostgresStore:
                         record["llm_model"],
                         record["prompt_version"],
                         record["index_version"],
+                        record.get("handled_by"),
+                        record.get("incident"),
                     ),
                 )
             return True
@@ -180,6 +183,92 @@ class PostgresStore:
                 """SELECT complaint_masked, triage, resolution, escalated
                    FROM resolve_requests WHERE request_id = %s""",
                 (uuid.UUID(request_id),),
+            ).fetchone()
+
+    # ---- sign-in, cases and decisions -----------------------------------------------------------
+
+    def get_user(self, username: str) -> dict | None:
+        """One sign-in account, or None when the name is unknown or the account is switched off."""
+        with self._connection() as conn:
+            return conn.execute(
+                """SELECT username, display_name, role, password_hash
+                   FROM users WHERE username = %s AND is_active""",
+                (username,),
+            ).fetchone()
+
+    def list_cases(
+        self, handled_by: str | None, hours: int = 24, status: str = "all", limit: int = 100
+    ) -> dict:
+        """Complaints handled by signed-in people, newest first, with the totals for the same period.
+
+        handled_by = a username: only that person's cases. None: everyone's.
+        "The assistant suggested a fix" means it drafted steps and did not recommend escalation.
+        "Followed" means the person then did what was suggested.
+        """
+        cases = """
+            WITH cases AS (
+                SELECT r.request_id::text AS request_id,
+                       r.complaint_masked AS complaint,
+                       r.triage -> 'category' ->> 'label' AS category,
+                       r.triage -> 'severity' ->> 'label' AS severity,
+                       COALESCE(jsonb_array_length(r.resolution -> 'steps') > 0, FALSE)
+                           AND NOT COALESCE(r.escalated, FALSE) AS fix_suggested,
+                       COALESCE(r.incident, FALSE) AS incident,
+                       r.decision, r.handled_by,
+                       COALESCE(u.display_name, r.handled_by) AS handled_by_name,
+                       GREATEST(0, EXTRACT(EPOCH FROM (now() - r.created_at)) / 60)::int AS minutes_ago,
+                       r.created_at
+                FROM resolve_requests r LEFT JOIN users u ON u.username = r.handled_by
+                WHERE r.handled_by IS NOT NULL
+                  AND r.created_at > now() - make_interval(hours => %(hours)s)
+                  AND (%(handled_by)s::text IS NULL OR r.handled_by = %(handled_by)s)
+            )"""
+        wanted = {
+            "open": "decision IS NULL",
+            "resolved": "decision = 'resolved'",
+            "escalated": "decision = 'escalated'",
+        }.get(status, "TRUE")
+        values = {"hours": hours, "handled_by": handled_by, "limit": limit}
+        with self._connection() as conn:
+            totals = conn.execute(
+                cases
+                + """ SELECT count(*) AS handled,
+                             count(*) FILTER (WHERE decision = 'resolved') AS resolved,
+                             count(*) FILTER (WHERE decision = 'escalated') AS escalated,
+                             count(*) FILTER (WHERE decision IS NULL) AS open,
+                             count(*) FILTER (WHERE (decision = 'resolved') = fix_suggested) AS followed
+                      FROM cases""",
+                values,
+            ).fetchone()
+            rows = conn.execute(
+                cases
+                + f""" SELECT request_id, complaint, category, severity, fix_suggested, incident, decision,
+                              handled_by, handled_by_name, minutes_ago
+                       FROM cases WHERE {wanted} ORDER BY created_at DESC LIMIT %(limit)s""",
+                values,
+            ).fetchall()
+        return {"totals": dict(totals), "items": rows}
+
+    def decide_case(self, request_id: str, decision: str, username: str, any_case: bool) -> dict | None:
+        """Record how a case ended. Returns None when there is no such case for this person.
+
+        any_case = False: a person may only decide a case they handled themselves.
+        """
+        with self._connection() as conn:
+            return conn.execute(
+                """UPDATE resolve_requests
+                   SET decision = %(decision)s, decided_by = %(username)s, decided_at = now()
+                   WHERE request_id = %(request_id)s AND handled_by IS NOT NULL
+                     AND (%(any_case)s OR handled_by = %(username)s)
+                   RETURNING request_id::text AS request_id, decision, decided_by,
+                             (COALESCE(jsonb_array_length(resolution -> 'steps') > 0, FALSE)
+                                 AND NOT COALESCE(escalated, FALSE)) = (decision = 'resolved') AS followed""",
+                {
+                    "request_id": uuid.UUID(request_id),
+                    "decision": decision,
+                    "username": username,
+                    "any_case": any_case,
+                },
             ).fetchone()
 
     def save_feedback(

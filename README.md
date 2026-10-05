@@ -9,6 +9,9 @@ A telecom support agent pastes a customer complaint and gets, in one screen:
 One more click drafts **the reply to the customer**, written only from the steps that passed the source check.
 And when several customers report the same fault within minutes, the page says so: **possible service incident**.
 
+Agents **sign in**, record how each case ended (resolved or escalated), and get a **Cases** page with their own
+cases. Second-line experts and engineers see the whole desk.
+
 It is built as small services, runs on a laptop with one command, and needs no paid API and no API key.
 
 ![The agent web page](docs/images/web-page.png)
@@ -63,7 +66,15 @@ docker compose ps                                        # every service should 
 docker compose run --rm tools python scripts/seed.py     # load the data (about a minute)
 ```
 
-Then open **http://localhost:8501** and press **Resolve**.
+Then open **http://localhost:8501**, sign in as `priya` with the password `demo1234`, and press **Resolve**.
+
+Three demo accounts exist straight after setup. They share one password: `demo1234`.
+
+| Username | Role | Sees |
+|---|---|---|
+| `priya` | Agent | Resolve, Feedback, and only their own cases |
+| `arun` | Second-line expert | The same, plus Record a fix and every agent's cases |
+| `meera` | Engineer | Everything, plus the Monitoring link |
 
 | Open | Address |
 |---|---|
@@ -76,6 +87,8 @@ Then open **http://localhost:8501** and press **Resolve**.
 - A faster hosted model is optional and takes three lines in `.env`. See
   [Choosing the language model](docs/GUIDE.md#choosing-the-language-model).
 - A port is already in use? Change it in `.env`, for example `REDIS_PORT=6380`.
+- Updating a copy that was already running? `docker compose run --rm tools python scripts/migrate.py` adds the
+  new tables (sign-in accounts, case decisions) to the existing database. A fresh copy does not need it.
 
 ## Try it
 
@@ -83,22 +96,29 @@ Then open **http://localhost:8501** and press **Resolve**.
 |---|---|
 | The complaint already in the box (broadband drops every evening) | Labels, five sources, and a fix in which each step cites its sources. "Restarted the router twice" is listed as already tried and is not suggested again. |
 | Press **Draft reply to customer** under the fix | A message you can edit and copy. It apologises if the customer was upset, does not ask them to repeat what they already tried, and contains no ticket numbers. |
+| Press **Mark as resolved** or **Escalate to second line** under the fix, then open **Cases** | The case is listed with what the assistant suggested and what you decided. A case where the two differ is marked. The top row counts how often the suggestion was followed. |
+| Sign out, sign in as `arun` (same password), open **Cases** | An expert sees every agent's cases, with a **Handled by** column. Signed in as `priya` you only ever see your own, and the gateway refuses the others even when asked directly. |
 | `I was charged twice this month` | A billing category this time, and a fix drawn from the billing tickets and articles. |
 | Run `docker compose run --rm tools python scripts/simulate_incident.py`, then resolve the complaint it prints | Six customers have just reported the same outage in their own words, so a **Possible service incident** notice appears above the labels, with the other complaints one click away. The `PossibleIncident` alert fires too. |
 | `What is the best recipe for chocolate cake?` | Not a telecom problem, so it should be stopped: no fix is drafted and escalation is recommended. (77% of off-topic questions are stopped this way.) |
-| Any problem the knowledge base does not cover | Escalation. Click **Record the real fix**, save a fix on the Record a fix page, go back and press Resolve again: the new fix is now used. |
+| Any problem the knowledge base does not cover (signed in as `arun`) | Escalation. Click **Record the real fix**, save a fix on the Record a fix page, go back and press Resolve again: the new fix is now used. |
 
 The reply to the customer, drafted with one click from the steps that passed the source check:
 
 ![The reply to the customer](docs/images/page-reply.png)
 
-The menu on the left has one page for each kind of user:
+The notice when several customers report the same fault within minutes, opened to show the other complaints:
 
-| Page | Who it is for | What it does |
+![A possible service incident](docs/images/page-incident.png)
+
+The menu on the left depends on who signed in:
+
+| Page | Who gets it | What it does |
 |---|---|---|
-| Resolve a complaint | Support agent | Labels, the drafted fix and the sources |
-| Feedback | Support agent | Rate the last answer: helpful or not, was the category right, an optional comment |
-| Record a fix | Expert | Record how a case was really solved, so the next agent gets it as a suggestion |
+| Resolve a complaint | Everyone | Labels, the drafted fix and the sources. Under the fix: **Mark as resolved** or **Escalate to second line** |
+| Cases | Everyone | What was handled and how it ended. An agent sees their own cases, an expert or engineer sees all of them |
+| Feedback | Everyone | Rate the last answer: helpful or not, was the category right, an optional comment |
+| Record a fix | Expert, engineer | Record how a case was really solved, so the next agent gets it as a suggestion |
 | Monitoring | Engineer | Opens the Grafana dashboard |
 
 <p>
@@ -167,11 +187,12 @@ No knowledge base covers everything. What matters is what the system does when i
 |---|---|
 | A part fails | Each service can fail without taking the rest down. Model down: the backup model answers, then steps are quoted from the source (and the customer reply falls back to a template). Triage down: answer without labels. Cache or database down: still answer. |
 | Security and privacy | API keys with separate agent and admin rights, a per-key rate limit, and personal details masked before anything is stored or sent to a model |
+| Who did what | People sign in (salted, slow password hashes; a signed session token that ends after a working day). The role decides what a person sees, and the gateway enforces it, not the page. Every case is stored with who handled it and how it ended |
 | Data that changes | New tickets, edited articles and new ticket classes go live through the API, by a queue with retries and a safety sweep. Old cached answers are dropped automatically |
 | Trust in the answer | Citations are checked against the sources, unsupported steps are flagged, "already tried" items the customer never said are removed. The customer reply uses only steps that passed these checks |
 | Seeing the bigger picture | Complaints that mean the same and arrive close together are flagged as a possible incident, on the page and by an alert. One customer is a ticket; twenty with the same fault is an outage |
-| Knowing it is healthy | 18 alert rules with their own tests, a 25-panel dashboard, one-command health check, one log line per request with the same ID in every service |
-| Knowing it is correct | Six eval scripts, 322 fast tests, 23 tests against the running system, and CI on every push |
+| Knowing it is healthy | 19 alert rules with their own tests, a 28-panel dashboard, one-command health check, one log line per request with the same ID in every service |
+| Knowing it is correct | Six eval scripts, 363 fast tests, 24 tests against the running system, and CI on every push. In live use: how often agents do what the assistant suggested |
 
 ![The monitoring dashboard](docs/images/dashboard.png)
 
@@ -186,6 +207,9 @@ No knowledge base covers everything. What matters is what the system does when i
   only receives checked steps, but its wording has no eval. The agent reads it before sending.
 - **Incident detection only reads the complaint text.** It has no network or location data, and the same words
   count once. It is a hint for a person, not an outage system.
+- **Sign-in is basic.** Three demo accounts with one public password, no single sign-on, no password reset, and
+  an account that is switched off keeps working until its session ends (up to eight hours). A case is one
+  press of Resolve, not a full ticket with a history.
 - **The data is synthetic**, built from 40 hand-written problem scenarios. Real tickets are messier.
 - **Small samples** in the answer eval (20 known complaints). The numbers show direction, not precision.
 
