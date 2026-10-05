@@ -68,6 +68,18 @@ class FakeTriage(FakeService):
 class FakeRetrieval(FakeService):
     similarity = 0.9
     relevance = 0.9
+    similar_recent = 1  # how many recent complaints mean the same, this one included
+
+    def recent(self, text, window_minutes=30, min_similarity=0.875):
+        self.recent_calls = [*getattr(self, "recent_calls", []), (text, window_minutes, min_similarity)]
+        if self.recent_error:
+            raise self.recent_error
+        others = [
+            {"text": "No internet in Anna Nagar since morning.", "minutes_ago": 4, "similarity": 0.91}
+        ] * min(self.similar_recent - 1, 3)
+        return {"count": self.similar_recent, "others": others}
+
+    recent_error = None
 
     def search(self, query, top_k_tickets=3, top_k_kb=2, **options):
         self._call(query, top_k_tickets, top_k_kb)
@@ -137,6 +149,10 @@ def setup():
         admin_api_keys="admin-key",
         min_similarity=0.7,
         max_complaint_chars=300,
+        # Set here so the tests do not depend on what .env says on the machine that runs them.
+        incident_min_similar=3,
+        incident_min_similarity=0.875,
+        incident_window_minutes=30,
     )
     orchestrator = Orchestrator(
         parts["triage"], parts["retrieval"], parts["generation"], parts["cache"], parts["store"], settings
@@ -331,6 +347,75 @@ def test_rate_limited_requests_get_429_with_retry_after(setup):
 def test_bad_complaints_are_rejected(setup, complaint):
     client, _ = setup
     assert client.post("/v1/resolve", json={"complaint": complaint}, headers=KEY).status_code == 422
+
+
+# ---- possible incident: many similar complaints close together -----------------------------------
+
+
+def test_every_complaint_is_checked_against_the_recent_ones(setup):
+    client, parts = setup
+    body = resolve(client)
+    assert body["incident"] == {
+        "detected": False,
+        "similar_recent": 1,
+        "needed": 3,
+        "window_minutes": 30,
+        "examples": [],
+    }
+    text, window, similarity = parts["retrieval"].recent_calls[0]
+    assert "07700" not in text and "[PHONE]" in text  # masked before it is stored anywhere
+    assert (window, similarity) == (30, 0.875)
+    assert "incident" in body["meta"]["latency_ms"]
+
+
+def test_enough_similar_complaints_are_flagged_as_a_possible_incident(setup):
+    client, parts = setup
+    parts["retrieval"].similar_recent = 2
+    assert resolve(client)["incident"]["detected"] is False  # one short of the three that are needed
+    parts["retrieval"].similar_recent = 6
+    incident = resolve(client, use_cache=False)["incident"]
+    assert incident["detected"] is True and incident["similar_recent"] == 6
+    assert incident["examples"][0]["text"].startswith("No internet in Anna Nagar")
+    metrics = client.get("/metrics").text
+    assert 'gateway_incident_checks_total{result="flagged"} 0.0' not in metrics  # it was counted
+
+
+def test_the_quick_path_checks_for_an_incident_too(setup):
+    client, parts = setup
+    parts["retrieval"].similar_recent = 5
+    body = resolve(client, generate=False)
+    assert body["incident"]["detected"] is True and parts["generation"].calls == []
+
+
+def test_a_cached_answer_still_gets_a_fresh_incident_check(setup):
+    client, parts = setup
+    assert resolve(client)["incident"]["detected"] is False
+    parts["retrieval"].similar_recent = 7  # more customers reported it in the meantime
+    again = resolve(client)
+    assert again["meta"]["cached"] is True and len(parts["generation"].calls) == 1
+    assert again["incident"]["detected"] is True and again["incident"]["similar_recent"] == 7
+
+
+def test_a_failed_incident_check_never_fails_the_request(setup):
+    client, parts = setup
+    parts["retrieval"].recent_error = ServiceError("qdrant is busy")
+    body = resolve(client)
+    assert body["incident"] is None and body["resolution"] is not None
+    assert body["meta"]["degraded"] == []  # the answer itself is complete
+    assert 'gateway_incident_checks_total{result="failed"}' in client.get("/metrics").text
+
+
+def test_test_traffic_can_opt_out_of_incident_detection(setup):
+    client, parts = setup
+    body = resolve(client, track_incident=False)
+    assert body["incident"] is None and not hasattr(parts["retrieval"], "recent_calls")
+
+
+def test_incident_detection_can_be_switched_off():
+    triage, retrieval, generation = FakeTriage(), FakeRetrieval(), FakeGeneration()
+    settings = Settings(incident_enabled=False)
+    orchestrator = Orchestrator(triage, retrieval, generation, InMemoryCache(), InMemoryStore(), settings)
+    assert orchestrator.resolve(COMPLAINT)["incident"] is None and not hasattr(retrieval, "recent_calls")
 
 
 # ---- reply to the customer ----------------------------------------------------------------------

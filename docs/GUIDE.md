@@ -80,6 +80,38 @@ curl -X POST http://localhost:8000/v1/reply \
 
 Counted in `gateway_replies_total` and `generation_replies_total`, by `llm` or `template`.
 
+### Possible service incident
+
+One complaint is one customer's problem. Several complaints that mean the same, arriving close together,
+are probably one fault that affects many customers. Every complaint is therefore compared with the
+complaints of the last 30 minutes. With three or more that mean the same, the page shows a
+**Possible service incident** notice and the `PossibleIncident` alert fires.
+
+```bash
+# Six customers report the same outage in their own words (no language model is used).
+docker compose run --rm tools python scripts/simulate_incident.py
+docker compose run --rm tools python scripts/simulate_incident.py --area "T Nagar"
+```
+
+Then resolve the complaint the script prints, on the page or with `/v1/resolve`. The answer carries:
+
+```json
+"incident": {"detected": true, "similar_recent": 7, "needed": 3, "window_minutes": 30,
+             "examples": [{"text": "No internet in ...", "minutes_ago": 2, "similarity": 0.91}]}
+```
+
+| Detail | How it works |
+|---|---|
+| What "the same" means | Close in meaning, by the same embedding model the search uses. Not the same category: one category holds many different faults |
+| The same words twice | Count once. A retry, or the page's quick call followed by the full call, is still one customer |
+| What is stored | The start of the masked complaint, in its own Qdrant collection, deleted after a day. It can never come back as a search result |
+| If the check fails | The complaint is answered as usual, with `"incident": null` |
+| A cached answer | The fix is reused, the incident check is done fresh |
+| Test traffic | Send `"track_incident": false` so it is not counted (the evals do) |
+| Settings | `INCIDENT_MIN_SIMILAR`, `INCIDENT_WINDOW_MINUTES`, `INCIDENT_MIN_SIMILARITY` in `.env`, then `docker compose up -d gateway` |
+
+Counted in `gateway_incident_checks_total`, by `clear`, `flagged` or `failed`.
+
 ## What the gateway does on every request
 
 | Step | What happens | If it goes wrong |
@@ -232,6 +264,20 @@ Scores the best source for each of the 430 test complaints with a cross-encoder 
 many new-class and off-topic complaints it would stop, for a given share of answerable complaints
 stopped by mistake. The check is off (`MIN_RELEVANCE=0`) unless this eval says it is worth its cost.
 
+### Incident detection
+
+```bash
+docker compose run --rm tools python evals/eval_incidents.py   # about a minute, no language model
+```
+
+Builds half hours of complaints from the test set: some with seven customers reporting one problem among
+twenty others, some with no such burst. For every pair of settings it reports how many incidents are
+flagged and how many quiet half hours are flagged by mistake. The best setting is picked on one half of
+the problems and reported on the other half, and the script prints the two `.env` lines to use it.
+
+Result on this data: similarity 0.875 with three complaints flags 71% of the incidents and 2% of the quiet
+half hours. Those are the settings in use.
+
 ### New data and new classes
 
 ```bash
@@ -255,7 +301,7 @@ the gateway, checks that new data is not stuck, and lists any alert that is firi
 | Where | What you see |
 |---|---|
 | http://localhost:3000 | One dashboard with 25 panels in five rows: up and fast enough, answer quality, drift, language model and cache, new data |
-| http://localhost:9090/alerts | 17 alert rules, each with what is wrong and what to do first |
+| http://localhost:9090/alerts | 18 alert rules, each with what is wrong and what to do first |
 | `docker compose logs gateway` | One JSON line per request. The same `request_id` appears in every service the request touched |
 
 What the alerts watch, in plain words:
@@ -264,7 +310,7 @@ What the alerts watch, in plain words:
 |---|---|
 | Is it up and fast? | a service is down, more than 5% of requests fail, answers take over two minutes |
 | Are the answers still good? | the model is not being used, steps fail the source check, agents say "not helpful", agents keep correcting the category |
-| Has the world changed? | complaints are no longer similar to anything indexed, too many escalations, agents say "none of the categories fits" |
+| Has the world changed? | complaints are no longer similar to anything indexed, too many escalations, agents say "none of the categories fits", several customers report the same fault within minutes |
 | Is new data arriving? | the queue is growing, nothing indexed for 10 minutes, a document was given up on |
 
 The alert rules have their own tests (made-up numbers in, expected alerts out):

@@ -99,3 +99,18 @@ def test_a_reply_can_be_drafted_for_an_escalated_complaint(http):
 
     unknown = http.post("/v1/reply", json={"request_id": str(uuid.uuid4())}, headers=KEY)
     assert unknown.status_code == 404
+
+
+def test_every_complaint_is_checked_for_a_possible_incident(http):
+    # The same words sent twice are one customer, so the count must not grow.
+    body = {
+        "complaint": f"My set-top box is stuck on the start screen, reference {uuid.uuid4()}",
+        "generate": False,
+    }
+    first = http.post("/v1/resolve", json=body, headers=KEY).json()["incident"]
+    second = http.post("/v1/resolve", json=body, headers=KEY).json()["incident"]
+    assert first is not None and {"detected", "similar_recent", "needed", "window_minutes"} <= set(first)
+    assert first["similar_recent"] >= 1 and second["similar_recent"] == first["similar_recent"]
+
+    opted_out = http.post("/v1/resolve", json={**body, "track_incident": False}, headers=KEY).json()
+    assert opted_out["incident"] is None

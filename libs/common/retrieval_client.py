@@ -17,3 +17,11 @@ class RetrievalClient(ServiceClient):
         """Return the retrieval service's response: {"results": [...], "timings_ms": {...}, ...}."""
         payload = {"query": query, "top_k_tickets": top_k_tickets, "top_k_kb": top_k_kb, **options}
         return self._post("/search", payload)
+
+    def recent(self, text: str, window_minutes: int = 30, min_similarity: float = 0.875) -> dict:
+        """Save this complaint and count the recent ones that mean the same.
+
+        Returns {"count": this one plus the similar ones, "others": a few of them, ...}.
+        """
+        payload = {"text": text, "window_minutes": window_minutes, "min_similarity": min_similarity}
+        return self._post("/recent", payload)

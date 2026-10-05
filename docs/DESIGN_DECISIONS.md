@@ -481,6 +481,63 @@ keep filing under an old category stays invisible until someone notices. Suggest
 keywords, not real names. And the worker updates the live collection in place; a change of
 embedding model still needs a full re-index into a new collection and an alias switch.
 
+## Incident detection: one customer's problem, or one fault for many?
+
+A support desk sees an outage first as a pile of separate tickets. The assistant already reads
+every complaint, so it can notice the pile: several complaints that mean the same, arriving close
+together.
+
+| Decision | Chosen | Alternative | Why |
+|---|---|---|---|
+| What "the same" means | Close in meaning to each other, by the embedding model the search already uses | The same triage category | A category holds many different faults: five billing disputes in half an hour is a normal half hour. Similar wording points at one fault, including one the knowledge base has never seen. |
+| Where recent complaints are kept | Their own small Qdrant collection, deleted after a day | The audit log in PostgreSQL, compared in Python | "Closest in meaning, inside a time filter" is exactly what the search engine does well. A separate collection means a recent complaint can never be returned as a source. |
+| How they are counted | The new complaint, plus the recent ones within the similarity, in one query | Cluster all recent complaints | One fast query per request, and the result explains itself: "7 similar in 30 minutes, here are three of them". Clustering is a batch job, and the project already uses it where a batch job fits (new-class discovery). |
+| The same words twice | One complaint: the ID is made from the text | Count every request | The page sends each complaint twice (quick call, then full call), and agents retry. Otherwise one customer looks like a crowd. |
+| A cached answer | The fix is reused, the incident check is done fresh | Cache the whole response | "How many right now" changes by the minute. A fix does not. |
+| When the check fails | Answer as usual with `incident: null`, count the failure | Fail the request | It is an extra. Losing it must not cost the agent the answer. |
+| Test traffic | The evals send `track_incident: false` | Count everything | One eval run would look like 36 outages to the agents on shift. |
+| Who acts on it | A notice for the agent and an alert for the person on call | Open an incident or message customers automatically | Similar wording is a strong hint, not proof of an outage. A person confirms it. |
+| Settings | Three complaints, 30 minutes, similarity 0.875, all in `.env` | Fixed in code, or the first guess (five complaints at 0.8) | Measured below: the first guess was wrong in both directions. `evals/eval_incidents.py` picks the values and prints the two lines to change. |
+
+How it is measured: the eval builds half hours of complaints from the test set, some with seven
+customers reporting one problem among twenty others, some without a burst, and counts how many
+are flagged for every pair of settings. The setting is picked on one half of the problems and
+reported on the other.
+
+### Measured: the first guess for the settings was wrong
+
+`evals/eval_incidents.py`, embedding model `BAAI/bge-small-en-v1.5`, 360 half hours of each kind on the
+test half (180 complaints about 18 problems the tuning never saw).
+
+| Similarity needed | 3 complaints | 4 complaints | 5 complaints |
+|---|---|---|---|
+| 0.80 | 0.99 / 0.84 | 0.62 / 0.43 | 0.38 / 0.16 (first guess) |
+| 0.825 | 0.94 / 0.39 | 0.39 / 0.08 | 0.12 / 0.01 |
+| 0.85 | 0.85 / 0.08 | 0.21 / 0.01 | 0.03 / 0.00 |
+| **0.875** | **0.71 / 0.02 (in use)** | 0.10 / 0.00 | 0.00 / 0.00 |
+| 0.90 | 0.41 / 0.00 | 0.03 / 0.00 | 0.00 / 0.00 |
+
+Each cell is: incidents flagged / quiet half hours flagged by mistake.
+
+What the numbers say:
+
+1. **The first guess was poor.** Five complaints at 0.8 found only 38% of the incidents and raised a false
+   alarm in 16% of quiet half hours. It looked reasonable and it worked in the demo, which is exactly why it
+   had to be measured.
+2. **Strict similarity with a low count wins.** Two complaints about the same problem are typically 0.77
+   similar, two about different problems 0.68. The groups overlap, so asking for many loosely similar
+   complaints lets unrelated ones in. Asking for a few very similar ones does not.
+3. **It is not fast on this data.** In the middle case the flag is raised after six of the seven
+   complaints, because these test complaints describe one problem in deliberately different words.
+4. **The false-alarm rate is per half hour of 27 complaints.** A busier desk has more complaints per half
+   hour and would see more false alarms at the same setting, so the eval should be rerun on real traffic.
+
+Known limits: it reads only the complaint text, with no network or location data. Customers who
+describe one fault in very different words can be missed, because only complaints close to the
+new one are counted. Identical words from two customers count once. The test complaints are
+written to differ on purpose, so real outage reports should be easier than the eval suggests,
+but that is not measured.
+
 ## Monitoring: knowing when it stops working
 
 An AI system can fail without any error: every request returns 200 while the answers quietly get

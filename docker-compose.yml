@@ -165,6 +165,10 @@ services:
       GATEWAY_API_KEYS: ${API_KEYS:-dev-local-key}
       GATEWAY_ADMIN_API_KEYS: ${ADMIN_API_KEYS:-dev-admin-key}
       GATEWAY_MIN_RELEVANCE: ${MIN_RELEVANCE:-0}
+      # Incident detection: this many complaints that mean the same, inside the time window.
+      GATEWAY_INCIDENT_MIN_SIMILAR: ${INCIDENT_MIN_SIMILAR:-3}
+      GATEWAY_INCIDENT_WINDOW_MINUTES: ${INCIDENT_WINDOW_MINUTES:-30}
+      GATEWAY_INCIDENT_MIN_SIMILARITY: ${INCIDENT_MIN_SIMILARITY:-0.875}
       GATEWAY_RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-30}
     ports:
       - "127.0.0.1:${GATEWAY_PORT:-8000}:8000"
@@ -304,6 +308,9 @@ services:
       GATEWAY_ADMIN_API_KEY: ${TOOLS_ADMIN_API_KEY:-dev-admin-key}
       INGESTION_URL: http://ingestion:8005
       PROMETHEUS_URL: http://prometheus:9090
+      # So the incident eval reports the settings the gateway is really using.
+      GATEWAY_INCIDENT_MIN_SIMILAR: ${INCIDENT_MIN_SIMILAR:-3}
+      GATEWAY_INCIDENT_MIN_SIMILARITY: ${INCIDENT_MIN_SIMILARITY:-0.875}
     volumes:
       - .:/app
     working_dir: /app

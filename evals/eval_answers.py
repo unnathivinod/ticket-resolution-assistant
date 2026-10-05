@@ -121,7 +121,8 @@ class Gateway:
         self._http = httpx.Client(base_url=base_url, headers={"X-API-Key": key}, timeout=300)
 
     def resolve(self, complaint: str, generate: bool) -> tuple[dict, float]:
-        body = {"complaint": complaint, "generate": generate, "use_cache": False}
+        # Test complaints are not real traffic, so they must not look like an incident to the agents.
+        body = {"complaint": complaint, "generate": generate, "use_cache": False, "track_incident": False}
         for _ in range(5):
             started = time.monotonic()
             try:

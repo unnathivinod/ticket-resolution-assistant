@@ -153,6 +153,14 @@ groups:
           summary: "Agents said 'none of the categories fits' five or more times today"
           action: "Run scripts/discover_classes.py and review the proposals at GET /v1/classes/proposals."
 
+      - alert: PossibleIncident
+        expr: sum(increase(gateway_incident_checks_total{result="flagged"}[15m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "Several customers reported the same problem within a few minutes"
+          action: "Probably one fault that affects many customers. Find the complaints in the gateway log (incident: true), check for a known outage and tell the duty manager."
+
   # ---- Is new data reaching the search index? ------------------------------------------------
   - name: ingestion
     rules:

@@ -52,6 +52,9 @@ class ResolveRequest(BaseModel):
     complaint: str = Field(min_length=1, description="The customer's complaint, as written")
     generate: bool = Field(True, description="False = only labels and sources, skip the slow drafting step")
     use_cache: bool = Field(True, description="False = always draft a fresh answer (used by the evals)")
+    track_incident: bool = Field(
+        True, description="False = do not count this complaint towards incident detection (evals, tests)"
+    )
 
 
 class ReplyRequest(BaseModel):
@@ -158,7 +161,9 @@ def create_app(
                 status_code=422, detail=f"complaint is longer than {settings.max_complaint_chars} characters"
             )
         try:
-            response = request.app.state.orchestrator.resolve(body.complaint, body.generate, body.use_cache)
+            response = request.app.state.orchestrator.resolve(
+                body.complaint, body.generate, body.use_cache, body.track_incident
+            )
         except SearchUnavailableError as error:
             log.error("search unavailable", extra={"fields": {"error": str(error)}})
             raise HTTPException(status_code=503, detail="Search is unavailable. Please try again.") from error
@@ -172,6 +177,8 @@ def create_app(
                     "escalate": response["escalate"],
                     "degraded": response["meta"]["degraded"],
                     "top_similarity": response["meta"]["top_similarity"],
+                    "similar_recent": (response.get("incident") or {}).get("similar_recent"),
+                    "incident": (response.get("incident") or {}).get("detected", False),
                     "latency_ms": response["meta"]["latency_ms"],
                 }
             },

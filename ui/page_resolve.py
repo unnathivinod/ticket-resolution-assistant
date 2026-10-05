@@ -9,6 +9,7 @@ from ui.api import GatewayError, call_gateway
 from ui.components import (
     cited_ids,
     drafting_html,
+    incident_html,
     page_title_html,
     reply_head_html,
     reply_notes_html,
@@ -132,6 +133,8 @@ def show() -> None:
             with st.spinner("Reading the complaint and searching past cases ..."):
                 quick = call_gateway("/v1/resolve", {"complaint": complaint, "generate": False}, timeout=60)
             # Labels and sources take under a second, so they are shown while the fix is drafted.
+            if banner := incident_html(quick.get("incident")):
+                st.html(banner)
             st.html(tiles_html(quick["triage"]))
             st.html(drafting_html())
             st.html(sources_html(quick["sources"]))
@@ -143,6 +146,8 @@ def show() -> None:
 
     if "result" in st.session_state:
         result = st.session_state["result"]
+        if banner := incident_html(result.get("incident")):
+            st.html(banner)
         st.html(tiles_html(result["triage"]))
         resolution_card(result)
         reply_card(result)

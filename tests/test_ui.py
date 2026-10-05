@@ -2,6 +2,7 @@
 
 from ui.components import (
     cited_ids,
+    incident_html,
     pretty,
     reply_head_html,
     reply_notes_html,
@@ -100,6 +101,42 @@ def test_a_negative_tone_is_never_described_as_no_tone_found():
     upset = TRIAGE | {"sentiment": {"label": "negative"}}  # the gateway sends the label only
     html = tiles_html(upset)
     assert "Negative" in html and "No strong tone found" not in html
+
+
+# ---- possible incident ------------------------------------------------------------------------------
+
+INCIDENT = {
+    "detected": True,
+    "similar_recent": 6,
+    "needed": 5,
+    "window_minutes": 30,
+    "examples": [
+        {"text": "No internet in Anna Nagar since morning.", "minutes_ago": 4, "similarity": 0.91},
+        {"text": "Broadband down in Anna Nagar <b>again</b>", "minutes_ago": 9, "similarity": 0.88},
+    ],
+}
+
+
+def test_no_banner_without_an_incident():
+    assert incident_html(None) == ""
+    assert incident_html(INCIDENT | {"detected": False}) == ""
+
+
+def test_the_incident_banner_says_how_many_and_shows_the_other_complaints():
+    html = incident_html(INCIDENT)
+    assert "Possible service incident." in html
+    assert "6 similar complaints were received in the last 30 minutes." in html
+    assert "View similar complaints" in html and "4 min ago" in html and "9 min ago" in html
+    assert "No internet in Anna Nagar since morning." in html
+    assert "<b>again" not in html and "&lt;b&gt;again" in html  # a customer's text cannot inject HTML
+
+
+def test_the_incident_banner_works_without_examples():
+    html = incident_html(INCIDENT | {"examples": []})
+    assert "Possible service incident." in html
+    assert "<details" not in html and "View similar complaints" not in html  # nothing to open
+    moments_ago = [{"text": "No internet.", "minutes_ago": 0, "similarity": 0.9}]
+    assert "just now" in incident_html(INCIDENT | {"examples": moments_ago})
 
 
 # ---- sources ----------------------------------------------------------------------------------------

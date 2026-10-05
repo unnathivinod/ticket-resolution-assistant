@@ -108,6 +108,26 @@
 .st-key-ask .stButton button { min-height: 92px; border-radius: 12px; }
 .st-key-ask .stButton button p { font-size: 16px; font-weight: 700; }
 
+/* ---- possible incident: one calm line, in the same style as the other notices on the page ---- */
+.incident { border-radius: 12px; border: 1px solid var(--warn-line); background: var(--warn-soft); color: #5c3204;
+  font-size: 14.5px; line-height: 1.45; animation: rise .35s ease both; }
+.incident-h { display: flex; align-items: center; gap: 12px; padding: 12px 16px; list-style: none; }
+.incident-h::-webkit-details-marker { display: none; }
+summary.incident-h { cursor: pointer; }
+summary.incident-h:focus-visible { outline: 2px solid var(--warn); outline-offset: 2px; border-radius: 12px; }
+.incident-h .ico { flex: 0 0 auto; color: var(--warn); }
+.incident-m { flex: 1; min-width: 0; }
+.incident-m b { font-weight: 700; color: var(--warn); }
+.incident-a { flex: 0 0 auto; font-weight: 700; color: var(--warn); white-space: nowrap; }
+.incident-a u { text-underline-offset: 3px; }
+.incident .open, .incident[open] .closed { display: none; }
+.incident[open] .open { display: inline; }
+.stHtml .incident ul { list-style: none; margin: 0; padding: 4px 16px 12px; display: flex; flex-direction: column; gap: 6px; }
+.stHtml .incident li { display: flex; gap: 12px; align-items: baseline; margin: 0; padding: 8px 12px; border-radius: 10px;
+  background: rgba(255, 255, 255, .75); border: 1px solid #f3dfbf; }
+.incident li span { flex: 0 0 76px; font-family: var(--mono); font-size: 12px; color: var(--warn); opacity: .8; }
+.incident li p { margin: 0; font-size: 13.5px; color: var(--ink); overflow-wrap: anywhere; }
+
 /* ---- what this is ---- */
 .tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
 .tiles + .note { margin-top: 14px; }
@@ -222,6 +242,7 @@
   .res-body { flex-direction: column; } .cause { flex: none; }
   .src summary { flex-wrap: wrap; } .src-t { flex: 1 1 100%; order: 5; }
   .stMainBlockContainer { padding: 52px 16px 36px; }
+  .incident-h { flex-wrap: wrap; } .incident-m { flex: 1 1 70%; }
 }
 @media (max-width: 520px) { .tiles { grid-template-columns: 1fr; } }
-@media (prefers-reduced-motion: reduce) { .card, .tile, .st-key-res, .st-key-reply, .stHtml .steps li, .bone { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .card, .tile, .st-key-res, .st-key-reply, .stHtml .steps li, .bone, .incident { animation: none; } }

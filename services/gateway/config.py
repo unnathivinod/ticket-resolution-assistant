@@ -31,6 +31,15 @@ class Settings(BaseSettings):
     # A second check on the same question, from a different model: the cross-encoder's relevance
     # score for the best source. 0 switches it off. Set it from evals/eval_relevance_gate.py.
     min_relevance: float = 0.0
+    # Incident detection. One complaint is one customer's problem. Several complaints that mean
+    # the same, arriving close together, are probably one fault that affects many customers.
+    # The two numbers at the end are measured by evals/eval_incidents.py: on test complaints the
+    # tuning never saw they flag 71% of incidents and 2% of quiet half hours. The first guess
+    # (0.8 and 5 complaints) flagged 38% and 16%, so it was replaced.
+    incident_enabled: bool = True
+    incident_window_minutes: int = 30  # how far back "close together" goes
+    incident_min_similar: int = 3  # this many similar complaints (this one included) raise the flag
+    incident_min_similarity: float = 0.875  # how close in meaning two complaints must be
     max_complaint_chars: int = 4000
     generation_timeout_seconds: float = 240.0
 

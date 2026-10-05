@@ -61,6 +61,40 @@ def page_title_html(title: str, hint: str = "") -> str:
     return f'<div class="page-h"><h1>{esc(title)}</h1><span>{esc(hint)}</span></div>'
 
 
+# ---- possible incident --------------------------------------------------------------------------
+
+
+def _ago(minutes: int) -> str:
+    return "just now" if minutes < 1 else f"{minutes} min ago"
+
+
+def incident_html(incident: dict | None) -> str:
+    """One calm line for "several customers are reporting the same thing". Empty when there is none.
+
+    The line opens to show a few of the other complaints, so the agent can judge for themselves.
+    """
+    if not incident or not incident.get("detected"):
+        return ""
+    count, minutes = int(incident["similar_recent"]), int(incident["window_minutes"])
+    message = (
+        f'{icon("alert")}<span class="incident-m"><b>Possible service incident.</b> '
+        f"{count} similar complaints were received in the last {minutes} minutes.</span>"
+    )
+    examples = incident.get("examples") or []
+    if not examples:
+        return f'<div class="incident"><div class="incident-h">{message}</div></div>'
+    rows = "".join(
+        f"<li><span>{_ago(int(item['minutes_ago']))}</span><p>{esc(item['text'])}</p></li>"
+        for item in examples
+    )
+    return (
+        f'<details class="incident"><summary class="incident-h">{message}'
+        '<span class="incident-a"><u class="closed">View similar complaints</u>'
+        '<u class="open">Hide</u></span></summary>'
+        f"<ul>{rows}</ul></details>"
+    )
+
+
 # ---- what this is ------------------------------------------------------------------------------
 
 

@@ -4,6 +4,7 @@
   2. Return a cached answer if this exact complaint was resolved recently.
   3. Triage: label the complaint (if triage is down, carry on without labels).
   4. Retrieval: find similar tickets and articles (required; without it there is nothing to answer from).
+     Also: count the recent complaints that mean the same. Enough of them is a possible incident.
   5. Checkpoint: if nothing found is similar enough, do not ask the model. Recommend escalation.
   6. Generation: draft the cited resolution.
   7. Write the audit log, cache the answer.
@@ -26,6 +27,10 @@ from services.gateway.config import Settings
 
 OUTCOMES = Counter("gateway_resolve_total", "Resolve requests by outcome", ["outcome"])
 REPLIES = Counter("gateway_replies_total", "Customer replies drafted, by how they were made", ["mode"])
+# flagged = this complaint arrived together with enough similar ones to look like one wider fault.
+INCIDENT_CHECKS = Counter(
+    "gateway_incident_checks_total", "Checks for similar recent complaints, by result", ["result"]
+)
 CACHE = Counter("gateway_cache_total", "Cache lookups", ["result"])
 STAGE_SECONDS = Histogram(
     "gateway_stage_seconds",
@@ -57,6 +62,8 @@ for _service in ("triage", "generation"):
     DEGRADED.labels(_service)
 for _mode in ("llm", "template"):
     REPLIES.labels(_mode)
+for _result in ("clear", "flagged", "failed"):
+    INCIDENT_CHECKS.labels(_result)
 
 
 NO_MATCH_REASON = (
@@ -109,7 +116,32 @@ class Orchestrator:
             "needs_review": result["needs_review"],
         }
 
-    def resolve(self, complaint: str, generate: bool = True, use_cache: bool = True) -> dict:
+    def _incident(self, masked: str) -> dict | None:
+        """Count the recent complaints that mean the same as this one. None if it cannot be checked.
+
+        This is an extra, never a requirement: if the check fails, the complaint is still answered.
+        """
+        settings = self._settings
+        try:
+            found = self._retrieval.recent(
+                masked, settings.incident_window_minutes, settings.incident_min_similarity
+            )
+        except ServiceError:
+            INCIDENT_CHECKS.labels("failed").inc()
+            return None
+        detected = found["count"] >= settings.incident_min_similar
+        INCIDENT_CHECKS.labels("flagged" if detected else "clear").inc()
+        return {
+            "detected": detected,
+            "similar_recent": found["count"],  # this complaint included
+            "needed": settings.incident_min_similar,
+            "window_minutes": settings.incident_window_minutes,
+            "examples": found["others"],
+        }
+
+    def resolve(
+        self, complaint: str, generate: bool = True, use_cache: bool = True, track_incident: bool = True
+    ) -> dict:
         settings = self._settings
         started = time.perf_counter()
         timings: dict[str, float] = {}
@@ -118,6 +150,7 @@ class Orchestrator:
         masked = mask_pii(complaint)
         index_version = self._cache.index_version()
         cache_key = self._cache_key(masked, index_version)
+        track_incident = track_incident and settings.incident_enabled
 
         # 2. Cache
         if generate and use_cache:
@@ -125,6 +158,8 @@ class Orchestrator:
             CACHE.labels("hit" if cached else "miss").inc()
             if cached:
                 response = {**cached, "request_id": request_id}
+                # The drafted fix can be reused, but "how many similar complaints right now" cannot.
+                response["incident"] = self._incident(masked) if track_incident else None
                 response["meta"] = {**cached["meta"], "cached": True}
                 response["meta"]["latency_ms"] = {"total": round((time.perf_counter() - started) * 1000, 1)}
                 self._audit(request_id, masked, response)
@@ -153,6 +188,12 @@ class Orchestrator:
             raise SearchUnavailableError(str(error)) from error
         timings["retrieval"] = time.perf_counter() - stage
 
+        incident = None
+        if track_incident:
+            stage = time.perf_counter()
+            incident = self._incident(masked)
+            timings["incident"] = time.perf_counter() - stage
+
         top_similarity = max((result["similarity"] for result in found), default=0.0)
         TOP_SIMILARITY.observe(top_similarity)
         confident = top_similarity >= settings.min_similarity
@@ -168,6 +209,7 @@ class Orchestrator:
                 {key: result[key] for key in ("id", "source_type", "title", "text", "similarity")}
                 for result in found
             ],
+            "incident": incident,
             "resolution": None,
             "escalate": False,
             "escalation_reason": "",

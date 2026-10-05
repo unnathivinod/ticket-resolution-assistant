@@ -2,6 +2,7 @@
 
 Endpoints
   POST /search   query -> ranked tickets and KB articles
+  POST /recent   complaint -> how many recent complaints mean the same (used to spot an incident)
   GET  /health   is the process alive?
   GET  /ready    can it reach Qdrant and the embedding service?
   GET  /metrics  numbers for Prometheus
@@ -17,25 +18,32 @@ from qdrant_client import QdrantClient
 from libs.common.embedding_client import EmbeddingClient, EmbeddingServiceError
 from libs.common.observability import add_observability
 from services.retrieval.config import Settings
+from services.retrieval.recent import RecentComplaints, RecentRequest, RecentResponse
 from services.retrieval.search import Searcher, SearchRequest, SearchResponse
 
 SERVICE_NAME = "retrieval"
 
 
-def create_app(searcher: Searcher | None = None, settings: Settings | None = None) -> FastAPI:
-    """Build the app. Tests pass in a Searcher wired to in-memory stand-ins."""
+def create_app(
+    searcher: Searcher | None = None,
+    settings: Settings | None = None,
+    recent: RecentComplaints | None = None,
+) -> FastAPI:
+    """Build the app. Tests pass in a Searcher (and RecentComplaints) wired to in-memory stand-ins."""
     settings = settings or Settings()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        if app.state.searcher is None:
+        if app.state.searcher is None and app.state.recent is None:  # tests pass in their own
             qdrant = QdrantClient(url=settings.qdrant_url, timeout=10)
             embedder = EmbeddingClient(settings.embedding_url, timeout=30)
             app.state.searcher = Searcher(qdrant, embedder, settings)
+            app.state.recent = RecentComplaints(qdrant, embedder, settings)
         yield
 
     app = FastAPI(title="Retrieval Service", version="0.1.0", lifespan=lifespan)
     app.state.searcher = searcher
+    app.state.recent = recent
     log = add_observability(app, SERVICE_NAME)
 
     @app.get("/health")
@@ -78,6 +86,27 @@ def create_app(searcher: Searcher | None = None, settings: Settings | None = Non
                     "timings_ms": response.timings_ms,
                 }
             },
+        )
+        return response
+
+    @app.post("/recent", response_model=RecentResponse)
+    def recent_complaints(body: RecentRequest, request: Request) -> RecentResponse:
+        if not body.text.strip():
+            raise HTTPException(status_code=422, detail="text is empty")
+        tracker = request.app.state.recent
+        if tracker is None:
+            raise HTTPException(status_code=503, detail="Recent complaints are not available")
+        try:
+            response = tracker.record(body)
+        except EmbeddingServiceError as error:
+            log.error("embedding service unavailable", extra={"fields": {"error": str(error)}})
+            raise HTTPException(status_code=503, detail="Embedding service is unavailable") from error
+        except Exception as error:  # noqa: BLE001 - Qdrant client raises several error types
+            log.exception("recent complaints failed")
+            raise HTTPException(status_code=503, detail="Search backend is unavailable") from error
+        log.info(
+            "recent",
+            extra={"fields": {"similar": response.count, "window_minutes": response.window_minutes}},
         )
         return response
 

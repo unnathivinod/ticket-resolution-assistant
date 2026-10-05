@@ -156,6 +156,39 @@ tests:
         alertname: BackupModelInUse
         exp_alerts: []
 
+  # Several customers report the same fault within minutes, so the gateway flags their complaints.
+  # Half an hour after the last one the alert is over.
+  - interval: 1m
+    input_series:
+      - series: 'gateway_incident_checks_total{result="flagged"}'
+        values: "0x10 1 2 3 3x40"
+      - series: 'gateway_incident_checks_total{result="clear"}'
+        values: "0+2x53"
+    alert_rule_test:
+      - eval_time: 14m
+        alertname: PossibleIncident
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "Several customers reported the same problem within a few minutes"
+              action: "Probably one fault that affects many customers. Find the complaints in the gateway log (incident: true), check for a known outage and tell the duty manager."
+      - eval_time: 45m
+        alertname: PossibleIncident
+        exp_alerts: []
+
+  # A normal day: every complaint is checked and none looks like part of a wider fault.
+  - interval: 1m
+    input_series:
+      - series: 'gateway_incident_checks_total{result="flagged"}'
+        values: "0x60"
+      - series: 'gateway_incident_checks_total{result="clear"}'
+        values: "0+2x60"
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: PossibleIncident
+        exp_alerts: []
+
   # Agents: 6 of 12 ratings in the last hours were "not helpful". Only 3 ratings would be too few to alert.
   - interval: 10m
     input_series:

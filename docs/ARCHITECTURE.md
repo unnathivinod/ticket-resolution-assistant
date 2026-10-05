@@ -89,7 +89,7 @@ flowchart TB
     end
 
     subgraph OBS["Monitoring"]
-        PROM["Prometheus<br/>17 alert rules"] --> GRAF["Grafana dashboard"]
+        PROM["Prometheus<br/>18 alert rules"] --> GRAF["Grafana dashboard"]
     end
 
     GW --> TR
@@ -185,7 +185,7 @@ Seven small programs of our own, plus ready-made infrastructure.
 |---|---|---|---|
 | **Gateway** | 8000 | The only front door. API keys (agent and admin), rate limit, PII masking, cache, runs the steps in order, checkpoints, audit log, feedback, data and class endpoints. | Triage, Retrieval, Generation, Redis, PostgreSQL |
 | **Triage** | 8001 | Category, product, severity and sentiment, each with a reason or a confidence. Says "unknown" when unsure. | Retrieval, Embedding |
-| **Retrieval** | 8002 | Finds the most similar tickets and KB sections (hybrid search). | Embedding, Qdrant |
+| **Retrieval** | 8002 | Finds the most similar tickets and KB sections (hybrid search). Also keeps the complaints of the last day and counts the recent ones that mean the same. | Embedding, Qdrant |
 | **Generation** | 8003 | Builds the prompt, calls the LLM, checks the answer. If the model fails it asks the backup model (when one is set), and if that fails too it quotes the source. Also writes the reply to the customer from the checked steps. | Ollama (or a hosted model), Embedding |
 | **Embedding** | 8004 | The only place the small models live: text to dense vector, text to BM25 vector. | none |
 | **Ingestion worker** | 8005 (metrics) | Keeps the search index in step with PostgreSQL. Retries, dead-letter list, safety sweep. | Redis, PostgreSQL, Embedding, Qdrant |
@@ -245,6 +245,7 @@ Other endpoints on the gateway:
 |---|---|---|
 | `POST /v1/reply` | agent | The message for the customer of an earlier answer, by its `request_id`. Built only from steps that passed the source check |
 | `POST /v1/feedback` | agent | Helpful or not, a comment, and the right category if ours was wrong |
+| (part of `/v1/resolve`) | agent | `incident`: how many recent complaints mean the same, and whether that looks like one wider fault |
 | `GET /v1/taxonomy` | agent | The ticket classes in use |
 | `POST /v1/tickets`, `PUT /v1/kb/{id}`, `DELETE /v1/documents/{id}` | admin | Add, update or retire a ticket or article |
 | `POST /v1/taxonomy`, `DELETE /v1/taxonomy/{kind}/{name}` | admin | Add or retire a class |
@@ -470,6 +471,17 @@ learned well (18 of 20), eSIM hardly at all (1 of 20), because eSIM complaints s
 existing classes that have many more tickets. The discovery job separated the two new classes
 into two clean groups at a similarity of 0.85, and only there (they merge at 0.80, nothing groups at 0.90).
 
+**Incident detection** (`eval_incidents.py`, half hours built from the test complaints)
+
+| Setting | Incidents flagged | Quiet half hours flagged by mistake |
+|---|---|---|
+| First guess: similarity 0.8, five complaints | 0.378 | 0.164 |
+| **Picked by the eval (in use): similarity 0.875, three complaints** | **0.711** | **0.022** |
+
+An incident here is seven customers reporting one problem among twenty other complaints. Two complaints about
+the same problem are typically 0.77 similar, about different problems 0.68, so the two groups overlap and a
+strict similarity with a low count works best.
+
 **Final answers** (`eval_answers.py`, through the gateway)
 
 | Group | Complaints | Cites the right problem | Cites a wrong problem | Escalated, no answer |
@@ -499,15 +511,15 @@ into two clean groups at a similarity of 0.85, and only there (they merge at 0.8
 | Has the world changed? | Similarity of the closest match, share escalated, share triage cannot label | Half of recent complaints are below 0.75 similarity. |
 | Is new data arriving? | Queue length, time since the last indexed document, dead letters | Work is waiting and nothing was indexed for 10 minutes. |
 
-- **17 alert rules**, each with what is wrong and what to do first. They have unit tests
+- **18 alert rules**, each with what is wrong and what to do first. They have unit tests
   (`promtool test rules`), run in CI.
 - **One Grafana dashboard**, built from a short Python list. A test checks every query against
   the metric names in the code, so a renamed metric cannot leave a silently empty panel.
 - **`scripts/health_check.py`**: one command that checks every service, sends a real complaint
   and an off-topic question through the gateway, and lists firing alerts.
 - **Logs**: one JSON line per request. The same request ID appears in every service it touched.
-- **CI** (GitHub Actions): code style, 292 fast tests, compose file, Prometheus config and alert tests.
-  22 more tests run against the live system.
+- **CI** (GitHub Actions): code style, 322 fast tests, compose file, Prometheus config and alert tests.
+  23 more tests run against the live system.
 
 ---
 
@@ -555,10 +567,12 @@ into two clean groups at a similarity of 0.85, and only there (they merge at 0.8
 ├── data/
 │   ├── scenarios/            40 hand-written problem scenarios (the source of all data)
 │   └── generated/            tickets, articles, test complaints
-├── scripts/                  generate_data, seed, migrate, demo, health_check, add_document, discover_classes
-├── evals/                    eval_retrieval, eval_triage, eval_evolving, eval_answers, eval_relevance_gate, results/
+├── scripts/                  generate_data, seed, migrate, demo, health_check, add_document, discover_classes,
+│                             simulate_incident
+├── evals/                    eval_retrieval, eval_triage, eval_evolving, eval_answers, eval_relevance_gate,
+│                             eval_incidents, results/
 ├── infra/                    PostgreSQL schema, Prometheus rules, Grafana dashboard, CI workflow
-└── tests/                    292 fast tests, 22 tests against the live system
+└── tests/                    322 fast tests, 23 tests against the live system
 ```
 
 How a reviewer runs it (no API key needed):
@@ -597,8 +611,8 @@ Each part was built, measured, and changed where the measurement disagreed with 
 | Problem understanding | 15 | Section 1. "Already tried" handling, the agent as reviewer, escalation instead of guessing. |
 | Solution depth, production scale | 25 | Sections 3 to 5 and 9. Read and write paths, fallbacks, queue with sweep, cache versioning, capacity. |
 | Design decisions | 20 | Section 7, section 11, and DESIGN_DECISIONS.md with the measurements. |
-| Code | 25 | Section 10. 314 tests (292 fast, 22 against the running system), CI, typed request models, one-command run. |
-| Checkpoints, evals, monitoring | 15 | Section 8. Eleven checkpoints, five evals, 17 tested alerts, a dashboard, a health check. |
+| Code | 25 | Section 10. 345 tests (322 fast, 23 against the running system), CI, typed request models, one-command run. |
+| Checkpoints, evals, monitoring | 15 | Section 8. Eleven checkpoints, six evals, 18 tested alerts, a dashboard, a health check. |
 
 | Deliverable | Where |
 |---|---|
