@@ -28,7 +28,7 @@ include the ones that are not flattering.
     <td align="center" width="33%"><h3>77%</h3>of off-topic questions stopped<br>before any language model is asked</td>
   </tr>
   <tr>
-    <td align="center"><h3>15 of 20</h3>known problems answered correctly<br>with the hosted model, in about 1.4 s each</td>
+    <td align="center"><h3>15 of 20</h3>known problems answered correctly<br>by the hosted model on Groq, in about 1.4 s each</td>
     <td align="center"><h3>71%</h3>of simulated outages noticed,<br>with 2% false alarms</td>
     <td align="center"><h3>A few seconds</h3>until a new ticket or a recorded fix<br>is searchable. Nothing is retrained</td>
   </tr>
@@ -137,7 +137,7 @@ The menu on the left depends on who signed in:
 | 2 | Triage labels the complaint by a vote among the most similar past tickets | under 1 s |
 | 3 | Retrieval finds the 3 closest tickets and 2 closest articles | under 1 s |
 | 4 | If nothing is similar enough, it stops here and recommends escalation | |
-| 5 | The language model drafts a fix. Every step must cite a source, and each citation is checked | 31 s local, 1.4 s hosted |
+| 5 | The language model drafts a fix. Every step must cite a source, and each citation is checked | 31 s local (Ollama), 1.4 s hosted (Groq) |
 | 6 | The request, the answer and the agent's feedback are recorded | |
 
 ## Architecture
@@ -176,7 +176,7 @@ deliberately use wording that never appears in the indexed tickets, so this is t
 
 ### Two language models on the same 56 complaints
 
-| | Local `llama3.2:3b` | Hosted `gpt-oss-20b` |
+| | Local `llama3.2:3b` on Ollama | Hosted `gpt-oss-20b` on Groq |
 |---|---|---|
 | Known problems answered correctly (of 20) | 11 | **15** |
 | When the search had found the right source (15) | 11 right, 3 mixed, 1 wrong | **15 of 15 right** |
@@ -226,7 +226,7 @@ No knowledge base covers everything. What matters is what the system does when i
 | Services | Python 3.11, FastAPI | Small typed services, with interactive API docs for free |
 | Search index | Qdrant | Search by meaning and by keyword in one query |
 | Embeddings | `bge-small-en-v1.5` and BM25, run locally with FastEmbed | No key, no cost; one service owns the models |
-| Language model | Ollama `llama3.2:3b`, or any OpenAI-compatible hosted model | Runs for a reviewer with no key. A hosted model can be put first, with Ollama as its backup |
+| Language model | Ollama `llama3.2:3b` locally (about 31 s per answer on a laptop CPU), or a hosted model such as `gpt-oss-20b` on Groq (about 1.4 s) | Runs for a reviewer with no key. Any OpenAI-compatible provider works; a hosted model can be put first, with Ollama as its backup |
 | Source of truth | PostgreSQL | Tickets, answers given, cases, accounts. The search index can always be rebuilt from it |
 | Cache, limits, queue | Redis | Answer cache, rate-limit counters, and a stream that carries new data to the indexer |
 | Web page | Streamlit | A thin page on top of the gateway API, with no logic of its own |
@@ -267,7 +267,7 @@ Three demo accounts exist straight after setup. They share one password: `demo12
 | Alerts | http://localhost:9090/alerts |
 
 - Without Ollama it still works: the steps are then quoted from the best matching source.
-- A faster hosted model is optional and takes three lines in `.env`. See
+- A faster hosted model is optional and takes three lines in `.env`. The measurements here used `gpt-oss-20b` on Groq's free plan. See
   [Choosing the language model](docs/GUIDE.md#choosing-the-language-model).
 - A port is already in use? Change it in `.env`, for example `REDIS_PORT=6380`.
 - Updating a copy that was already running? `docker compose run --rm tools python scripts/migrate.py` adds the
