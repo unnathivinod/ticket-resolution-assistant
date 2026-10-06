@@ -14,10 +14,10 @@ cases. Second-line experts and engineers see the whole desk.
 
 It is built as small services, runs on a laptop with one command, and needs no paid API and no API key.
 
-**Demo.** The preview plays four highlights: a resolved complaint, the reply to the customer, an agent's cases
-and an expert's view of the whole desk. Click it for the full video (about a minute and a half).
+**Demo.** Four highlights: a resolved complaint, the reply to the customer, an agent's cases and an expert's
+view of the whole desk.
 
-[![Demo of the assistant: resolve a complaint, draft the reply, record the decision, open Cases](docs/images/demo-preview.gif)](docs/demo.mp4)
+![Demo of the assistant: resolve a complaint, draft the reply, record the decision, open Cases](docs/images/demo-preview.gif)
 
 ![The agent web page](docs/images/web-page.png)
 
