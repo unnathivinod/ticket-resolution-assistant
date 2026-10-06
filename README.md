@@ -223,6 +223,7 @@ No knowledge base covers everything. What matters is what the system does when i
 
 | Document | What is in it |
 |---|---|
+| [docs/Project-Overview.pdf](docs/Project-Overview.pdf) | Ten pages with screenshots: what it does, the architecture, what was measured, the design decisions, how to run it |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | The design in plain words, the diagrams, how each requirement is met, scale considerations |
 | [docs/DESIGN_DECISIONS.md](docs/DESIGN_DECISIONS.md) | Each choice, the alternative, and the measurement behind it, including the ideas that were tried and rejected |
 | [docs/GUIDE.md](docs/GUIDE.md) | Every address and command: the API, adding data and classes, the model settings, running each eval, monitoring, tests |
