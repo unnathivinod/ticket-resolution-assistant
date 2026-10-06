@@ -431,7 +431,7 @@ strict similarity with a low count works best.
 - **`scripts/health_check.py`**: one command that checks every service, sends a real complaint
   and an off-topic question through the gateway, and lists firing alerts.
 - **Logs**: one JSON line per request. The same request ID appears in every service it touched.
-- **CI** (GitHub Actions): code style, 363 fast tests, compose file, Prometheus config and alert tests.
+- **CI** (GitHub Actions): code style, 367 fast tests, compose file, Prometheus config and alert tests.
   24 more tests run against the live system.
 
 ---
@@ -440,7 +440,7 @@ strict similarity with a low count works best.
 
 | Area | Now (one laptop) | At scale |
 |---|---|---|
-| **Scaling** | One container per service | Services hold no state, so run several copies behind a load balancer (Kubernetes, autoscaling) |
+| **Scaling** | One container per service. Measured: 8 to 9 requests a second for labels and sources, no errors up to 20 agents at once (`scripts/load_test.py`) | Services hold no state, so run several copies behind a load balancer (Kubernetes, autoscaling). Triage, retrieval and the embedding service first: that is where the time goes under load |
 | **LLM** | 3B model on CPU, about 31 s per answer | GPU serving or a hosted model: seconds. Stream the answer so text appears at once. |
 | **Model quality** | Cannot judge whether a source fits | A larger model for that one decision. The setting and the eval for it already exist. |
 | **Search quality** | Right source among the five for 83% | A stronger embedding model (one setting, then re-index and re-run the eval) |
@@ -481,11 +481,11 @@ strict similarity with a low count works best.
 │   ├── scenarios/            40 hand-written problem scenarios (the source of all data)
 │   └── generated/            tickets, articles, test complaints
 ├── scripts/                  generate_data, seed, migrate, demo, health_check, add_document, discover_classes,
-│                             simulate_incident, add_user
+│                             simulate_incident, add_user, load_test
 ├── evals/                    eval_retrieval, eval_triage, eval_evolving, eval_answers, eval_relevance_gate,
 │                             eval_incidents, results/
 ├── infra/                    PostgreSQL schema, Prometheus rules, Grafana dashboard, CI workflow
-└── tests/                    363 fast tests, 24 tests against the live system
+└── tests/                    367 fast tests, 24 tests against the live system
 ```
 
 How a reviewer runs it (no API key needed):
@@ -524,7 +524,7 @@ Each part was built, measured, and changed where the measurement disagreed with 
 | Problem understanding | 15 | Section 1. "Already tried" handling, the agent as reviewer, escalation instead of guessing. |
 | Solution depth, production scale | 25 | Sections 3 to 5 and 9. Read and write paths, fallbacks, queue with sweep, cache versioning, capacity. |
 | Design decisions | 20 | Section 7, section 11, and DESIGN_DECISIONS.md with the measurements. |
-| Code | 25 | Section 10. 387 tests (363 fast, 24 against the running system), CI, typed request models, one-command run. |
+| Code | 25 | Section 10. 391 tests (367 fast, 24 against the running system), CI, typed request models, one-command run. |
 | Checkpoints, evals, monitoring | 15 | Section 8. Eleven checkpoints, six evals, 19 tested alerts, a dashboard, a health check. |
 
 | Deliverable | Where |

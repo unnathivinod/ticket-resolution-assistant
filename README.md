@@ -161,8 +161,9 @@ One request step by step, and the reasoning behind each part, are in [docs/ARCHI
 
 ## What was measured
 
-Every number comes from a script in `evals/` and can be reproduced. The test complaints
-deliberately use wording that never appears in the indexed tickets, so this is the hard case.
+Every number comes from a script in `evals/` (the load figure from `scripts/load_test.py`) and can be
+reproduced. The test complaints deliberately use wording that never appears in the indexed tickets, so this
+is the hard case.
 
 | Question | Result |
 |---|---|
@@ -173,6 +174,7 @@ deliberately use wording that never appears in the indexed tickets, so this is t
 | Is every step backed by its source? | **100%** of steps in answers to known problems. |
 | Are off-topic questions stopped? | 77% by the similarity cut-off, before any model is asked. |
 | Is an outage noticed? | Seven customers reporting one fault among twenty other complaints are flagged in **71%** of cases, and 2% of quiet half hours are flagged by mistake. The first guess for the settings managed 38% and 16%; the eval replaced it. |
+| How much load does it carry? | On one laptop, labels and sources for **8 to 9 complaints a second** with no errors, tested up to 20 agents at once. Typical response: 0.2 s for one agent, 0.6 s for five, 2 s for twenty. From about five agents at once, requests wait in line instead of going faster. |
 
 ### Two language models on the same 56 complaints
 
@@ -217,7 +219,8 @@ No knowledge base covers everything. What matters is what the system does when i
 | Trust in the answer | Citations are checked against the sources, unsupported steps are flagged, "already tried" items the customer never said are removed. The customer reply uses only steps that passed these checks |
 | Seeing the bigger picture | Complaints that mean the same and arrive close together are flagged as a possible incident, on the page and by an alert. One customer is a ticket; twenty with the same fault is an outage |
 | Knowing it is healthy | 19 alert rules with their own tests, a 28-panel dashboard, one-command health check, one log line per request with the same ID in every service |
-| Knowing it is correct | Six eval scripts, 363 fast tests, 24 tests against the running system, and CI on every push. In live use: how often agents do what the assistant suggested |
+| Knowing it is correct | Six eval scripts, 367 fast tests, 24 tests against the running system, and CI on every push. In live use: how often agents do what the assistant suggested |
+| Under load | Measured with `scripts/load_test.py`, not estimated: one copy of each service levels off at 8 to 9 requests a second on a laptop. At 20 agents at once the time goes into triage (1.2 s) and search (0.7 s), which both call the embedding service, so those three get more copies first. The services hold no state, so copies can simply be added |
 
 ## Tech stack
 
@@ -311,6 +314,9 @@ curl -X POST http://localhost:8000/v1/resolve \
   an account that is switched off keeps working until its session ends (up to eight hours). A case is one
   press of Resolve, not a full ticket with a history.
 - **The data is synthetic**, built from 40 hand-written problem scenarios. Real tickets are messier.
+- **One copy of each service is small.** It answers 8 to 9 requests a second on a laptop. Twenty agents pressing
+  Resolve in the same moment wait about 2 seconds for labels and sources. The load test covers that path only;
+  drafting speed depends on the language model provider.
 - **Small samples** in the answer eval (20 known complaints). The numbers show direction, not precision.
 
 ## Where to read more

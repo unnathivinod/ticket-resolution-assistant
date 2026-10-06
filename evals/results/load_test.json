@@ -1,0 +1,56 @@
+{
+  "path": "quick (labels and sources, no drafting)",
+  "seconds_per_step": 20,
+  "machine": "x86_64, 12 CPUs visible to the container",
+  "steps": [
+    {
+      "users": 1,
+      "requests": 77,
+      "per_second": 3.8,
+      "p50_ms": 225,
+      "p95_ms": 440,
+      "slowest_ms": 1458,
+      "triage_p50_ms": 142,
+      "retrieval_p50_ms": 69,
+      "errors": 0,
+      "rate_limited": 0
+    },
+    {
+      "users": 5,
+      "requests": 165,
+      "per_second": 8.1,
+      "p50_ms": 560,
+      "p95_ms": 972,
+      "slowest_ms": 1158,
+      "triage_p50_ms": 358,
+      "retrieval_p50_ms": 194,
+      "errors": 0,
+      "rate_limited": 0
+    },
+    {
+      "users": 10,
+      "requests": 170,
+      "per_second": 8.2,
+      "p50_ms": 1070,
+      "p95_ms": 2376,
+      "slowest_ms": 2828,
+      "triage_p50_ms": 678,
+      "retrieval_p50_ms": 384,
+      "errors": 0,
+      "rate_limited": 0
+    },
+    {
+      "users": 20,
+      "requests": 196,
+      "per_second": 9.2,
+      "p50_ms": 2003,
+      "p95_ms": 3756,
+      "slowest_ms": 4500,
+      "triage_p50_ms": 1234,
+      "retrieval_p50_ms": 700,
+      "errors": 0,
+      "rate_limited": 0
+    }
+  ],
+  "reading": "Throughput levelled off between 8.1 and 9.2 requests per second, from 5 users on. More users after that only wait longer: that is the capacity of one copy of each service on this machine."
+}

@@ -350,6 +350,42 @@ docker compose run --rm tools python evals/eval_evolving.py
 Adds the two held-back ticket classes step by step, measures how quickly search and triage pick
 them up, then removes them again.
 
+### Under load
+
+How fast does it stay when many agents press Resolve at once, and where does it slow down first?
+
+```bash
+docker compose run --rm tools python scripts/load_test.py
+docker compose run --rm tools python scripts/load_test.py --users 1 5 10 20 40 --seconds 30
+```
+
+The test runs in steps (1, 5, 10 and 20 agents by default, 20 seconds each). Every agent sends one
+complaint after another as fast as the system answers. For each step it prints the requests per
+second, the typical and the slow (p95) response time, and the errors, then says where throughput
+stopped growing. It uses the quick path (labels and sources): drafting speed belongs to the
+language model provider, not to this system.
+
+The rate limit must be lifted for the test, otherwise the limiter refuses most of it, as it should:
+
+```powershell
+$env:RATE_LIMIT_PER_MINUTE="1000000"; docker compose up -d gateway     # before
+Remove-Item Env:RATE_LIMIT_PER_MINUTE; docker compose up -d gateway    # after
+```
+
+The result is saved in `evals/results/load_test.json`. On the laptop this was built on (Docker
+sees 12 CPU threads, shared by all twelve containers and the test itself), one run gave:
+
+| Agents at once | Requests per second | Typical response | Slow (p95) | Errors |
+|---|---|---|---|---|
+| 1 | 3.8 | 0.2 s | 0.4 s | 0 |
+| 5 | 8.1 | 0.6 s | 1.0 s | 0 |
+| 10 | 8.2 | 1.1 s | 2.4 s | 0 |
+| 20 | 9.2 | 2.0 s | 3.8 s | 0 |
+
+Throughput levels off between 8 and 9 requests a second from five agents on: after that, more
+agents only wait longer. At 20 agents the typical request spends 1.2 s in triage and 0.7 s in search.
+Both call the embedding service, so those three are the first to run as several copies.
+
 ## Monitoring
 
 ```bash
