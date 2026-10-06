@@ -40,9 +40,9 @@ Four highlights: a resolved complaint, the reply to the customer, an agent's cas
 
 ![Demo of the assistant: resolve a complaint, draft the reply, record the decision, open Cases](docs/images/demo-preview.gif)
 
-## 	Deliverables
+## 	Requirement Coverage 
 
-| Deliverable | Location |
+| Requirement | Covered in |
 |---|---|
 | Architecture diagram | [Architecture](#architecture) below; three more diagrams in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 | Full executable code | This repository. [Run it](#run-it) with five commands |
