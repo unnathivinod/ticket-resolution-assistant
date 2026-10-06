@@ -31,19 +31,7 @@ It is built as small services, runs on a laptop with one command, and needs no p
 
 ## How it works
 
-```mermaid
-flowchart LR
-    AGENT["Support agent"] --> UI["Web page"]
-    UI --> GW["Gateway<br/>API keys, rate limit,<br/>masks personal details,<br/>cache, audit log"]
-    GW --> TR["Triage<br/>category, product,<br/>severity, sentiment"]
-    GW --> RT["Retrieval<br/>search by meaning<br/>and by keyword"]
-    GW --> GN["Generation<br/>drafts the fix,<br/>checks it against sources"]
-    RT --> QD[("Qdrant<br/>search index")]
-    GN --> LLM["Language model<br/>local Ollama, or a hosted<br/>model with Ollama as backup"]
-    GW --> PG[("PostgreSQL<br/>tickets, answers given,<br/>agent feedback")]
-    NEW["New tickets,<br/>edited articles"] --> GW
-    GW -. "queue" .-> ING["Ingestion worker"] --> QD
-```
+![How it works: answering a complaint, learning new data, and what is always on](docs/images/how-it-works.png)
 
 | Step | What happens | Typical time |
 |---|---|---|

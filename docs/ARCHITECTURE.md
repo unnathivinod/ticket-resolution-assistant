@@ -60,59 +60,11 @@ measurements that drove them, are in [DESIGN_DECISIONS.md](DESIGN_DECISIONS.md).
 
 ### 3.1 System overview
 
-```mermaid
-flowchart TB
-    AGENT["Support agent"] --> UI["Agent web page :8501"]
-    UI --> GW["API Gateway :8000<br/>API keys, rate limit, PII masking,<br/>cache, checkpoints, audit log"]
-    ADMIN["Ticketing system / admin<br/>new tickets, edited articles, new classes"] --> GW
+![The architecture: who uses it, the gateway, the services, models and data, and what watches it](images/architecture.png)
 
-    subgraph READ["Answering a complaint (synchronous)"]
-        TR["Triage :8001<br/>category, product, severity, sentiment"]
-        RT["Retrieval :8002<br/>hybrid search"]
-        GN["Generation :8003<br/>draft, check citations, fallback"]
-    end
-
-    subgraph WRITE["New data (asynchronous)"]
-        QUEUE[["Redis Stream<br/>'document X changed'"]]
-        ING["Ingestion worker<br/>chunk, embed, index, sweep"]
-    end
-
-    subgraph MODELS["Models"]
-        EMB["Embedding :8004<br/>dense + BM25 vectors"]
-        LLM["Ollama<br/>llama3.2:3b"]
-    end
-
-    subgraph DATA["Data stores"]
-        QD[("Qdrant<br/>search index")]
-        PG[("PostgreSQL<br/>source of truth")]
-        RD[("Redis<br/>cache, limits, queue")]
-    end
-
-    subgraph OBS["Monitoring"]
-        PROM["Prometheus<br/>19 alert rules"] --> GRAF["Grafana dashboard"]
-    end
-
-    GW --> TR
-    GW --> RT
-    GW --> GN
-    GW --> RD
-    GW --> PG
-    GW -- "note" --> QUEUE
-    QUEUE --> ING
-
-    TR --> RT
-    TR --> EMB
-    RT --> EMB
-    RT --> QD
-    GN --> LLM
-    GN --> EMB
-    ING --> PG
-    ING --> EMB
-    ING --> QD
-
-    READ -. "/metrics" .-> PROM
-    WRITE -. "/metrics" .-> PROM
-```
+Read it top to bottom. Every request enters through the gateway, which calls the three services in the
+order of the numbers. The dashed line is the queue: new data is indexed in the background. The coloured
+dots under each service name what it uses from the bottom row.
 
 ### 3.2 The same picture as plain text
 
@@ -122,13 +74,13 @@ flowchart TB
                    [ Web page :8501 ]                           |
                           |                                     |
                    [ API GATEWAY :8000 ] <----------------------+
-        API keys, rate limit, PII masking, cache, checkpoints, audit log, feedback
+    API keys, sign-in and roles, rate limit, PII masking, cache, checkpoints, audit log, cases
           |              |               |                |
      [ TRIAGE ]    [ RETRIEVAL ]   [ GENERATION ]    Redis Stream (queue)
       labels by     hybrid search   draft + checks         |
       neighbour          |               |          [ INGESTION WORKER ]
-      vote  ------------>|          [ OLLAMA ]       reads PostgreSQL,
-          \              |           local LLM       embeds, updates index
+      vote  ------------>|      [ LANGUAGE MODEL ]   reads PostgreSQL,
+          \              |       hosted or local     embeds, updates index
            \             |               |                 |
             +---->[ EMBEDDING SERVICE ]<-+-----------------+
                          |
@@ -139,37 +91,7 @@ flowchart TB
 
 ### 3.3 What happens on one request
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor A as Support agent
-    participant G as Gateway
-    participant C as Redis
-    participant T as Triage
-    participant R as Retrieval
-    participant L as Generation + LLM
-    participant P as PostgreSQL
-
-    A->>G: POST /v1/resolve (complaint)
-    G->>G: check API key and rate limit, mask personal details
-    G->>C: answered this exact complaint already?
-    C-->>G: no
-    G->>T: classify
-    T->>R: 25 most similar past tickets
-    T-->>G: category, product, severity, sentiment (or "unknown")
-    G->>R: 3 tickets + 2 articles
-    R-->>G: sources with similarity
-    alt closest source below 0.72
-        G-->>A: nothing similar enough: escalate (the model is not asked)
-    else similar sources found
-        G->>L: draft using only these sources
-        L->>L: drop steps without a real citation, score each step against its source
-        L-->>G: steps with citations
-        G->>P: audit log (answer, sources, model, prompt version)
-        G->>C: cache the answer
-        G-->>A: labels + resolution + sources
-    end
-```
+![One request, step by step](images/request-steps.png)
 
 The web page makes this call twice: first with `generate: false` (labels and sources, under a
 second), then the full call (about 30 seconds with a local model on a CPU). The agent can start
@@ -332,20 +254,7 @@ admin --> gateway --> PostgreSQL (saved first)
 
 **When a complaint is new: the whole loop**
 
-```mermaid
-flowchart LR
-    A["New complaint"] --> B{"Anything similar<br/>enough?"}
-    B -- "no" --> C["Escalate<br/>no draft"]
-    B -- "yes" --> D["Draft with sources"]
-    D --> E["Agent reviews"]
-    E -- "wrong or missing" --> C
-    C --> F["Expert solves it"]
-    F --> G["Record the fix<br/>(page form or API)"]
-    G --> H["Searchable in seconds"]
-    H --> A
-    E -- "none of the<br/>categories fits" --> I["Discovery job<br/>proposes a class"]
-    I --> J["Person approves"]
-```
+![How the system learns a missing fix, and a new ticket class](images/learning-loop.png)
 
 | Step | What should happen | Where it is |
 |---|---|---|
